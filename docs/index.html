@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>[Your Product Name] · Building with AI (Fall 2026)</title>
+  <title>Scrapbook Kitchen · Building with AI (Fall 2026)</title>
 
   <!-- Week 1: create your PostHog account only.
        Build 2: paste your project's current PostHog web snippet here,
@@ -144,8 +144,8 @@
     <!-- HERO / PRODUCT PITCH -->
     <header>
       <span class="eyebrow">NYU Stern · Building with AI · Fall 2026</span>
-      <h1>[Your Product Name]</h1>
-      <p class="tagline">[One clear sentence: Who is this for, and what painful job does it do for them?]</p>
+      <h1>Scrapbook Kitchen</h1>
+      <p class="tagline">Your recipe scrapbook, from screenshots, cookbooks, and everything in between.</p>
       <div class="cta-row">
         <a class="btn" href="#live-demo" onclick="window.posthog && posthog.capture('clicked_try_product')">See the Product →</a>
         <a class="btn btn-secondary" href="#prd">Read the Living PRD</a>
@@ -171,16 +171,17 @@
       <p class="meta">Updated every week as we test with real users and learn what works.</p>
 
       <h3>1. Target User & The Job to Be Done</h3>
-      <p><strong>Who is this for?</strong> [Name a specific, reachable person or role you have direct access to.]</p>
-      <p><strong>The painful "Before" workflow:</strong> [How do they do this today, and why is it slow, manual, or broken?]</p>
-      <p><strong>The "After" workflow with this product:</strong> [What does your tool do for them in one sitting?]</p>
+      <p><strong>Who is this for?</strong> Me first, plus a family member and my class pod. More broadly, it's for home cooks and bakers who get inspired by recipes and videos they find online or in books, and want to be able to find them again. I'll use it myself every week and recruit testers directly.</p>
+      <p><strong>The painful "Before" workflow:</strong> I save several recipes a week, mostly by saving videos on social media, but I often never go back to them. The recipes I love and use again and again, I email to myself as links. About once a week I try to find something I saved. I often forget I saved it, can't find the video again, or remember seeing something amazing but can't remember what it was.</p>
+      <p><strong>The "After" workflow with this product:</strong> When I find a recipe, I upload a screenshot or a photo of a cookbook page, or paste a website link or recipe text. AI turns it into a clean recipe with a title, ingredients, steps, and where it came from. I review and fix the result, then save it as "want to try" or "favorite" with a link back to the original image or post. Later, I search my saved recipes by keyword ("brownie", "chicken", "stuffing") or by description ("quick dinner", "chocolate desserts"), pull one up, and cook from it.</p>
 
       <h3>2. Scope & Explicit Non-Goals</h3>
       <ul>
-        <li><strong>In Scope (Core Workflow):</strong> [The 1 main workflow this product does reliably]</li>
-        <li><strong>Out of Scope #1:</strong> [Feature you are deliberately NOT building in 6 weeks]</li>
-        <li><strong>Out of Scope #2:</strong> [Feature you are deliberately NOT building in 6 weeks]</li>
-        <li><strong>Out of Scope #3:</strong> [Feature you are deliberately NOT building in 6 weeks]</li>
+        <li><strong>In Scope (Core Workflow):</strong> Upload an image (or paste a link or text) → AI extracts the recipe → I review and fix it → save it as "want to try" or "favorite" with its source attached → search by keyword or description and cook from it.</li>
+        <li><strong>Out of Scope #1:</strong> Meal planning</li>
+        <li><strong>Out of Scope #2:</strong> Grocery lists</li>
+        <li><strong>Out of Scope #3:</strong> Calendars</li>
+        <li><strong>Later Builds (wanted, but not part of this core workflow):</strong> Analyzing the video and audio from a social media video link to pull out the recipe; scaling servings and converting units; nutrition information; sharing recipes; more ways to organize beyond "want to try" and "favorite".</li>
       </ul>
 
       <h3>3. How It Works Under the Hood & Riskiest Assumption (Week 2+)</h3>
