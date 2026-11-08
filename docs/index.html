@@ -137,6 +137,14 @@
       font-size: 13px;
       color: var(--muted);
     }
+    .showcase-img {
+      display: block;
+      max-width: 100%;
+      height: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin: 12px 0 4px;
+    }
   </style>
 </head>
 <body>
@@ -157,12 +165,13 @@
     <section id="live-demo">
       <h2>Product Showcase (Prototype / Live App / 2-Min Video)</h2>
       <p>
-        <strong>Current Status:</strong> [Build 1: local prototype / Builds 2–4: local app / Build 5: cloud app]<br />
-        <strong>Demo:</strong> [Add a screenshot or GIF now; add the live cloud app URL in Build 5.]
+        <strong>Current Status:</strong> Build 1: local prototype (runs on my laptop)<br />
+        <strong>Demo:</strong> Screenshots of the local prototype below. The live cloud app link comes in Build 5.
       </p>
-      <p class="meta">
-        Ask your coding agent to embed a screenshot or GIF of your local prototype for Build 1. Keep this evidence current, then add your cloud app link and two-minute video in Build 5.
-      </p>
+      <img class="showcase-img" src="prototype.png" alt="Scrapbook Kitchen prototype: the Add a recipe form with a screenshot upload and paste box, above the My recipes list with search" />
+      <p class="meta">Add a recipe from screenshots or pasted text, then find it later in My recipes.</p>
+      <img class="showcase-img" src="prototype2.png" alt="A saved recipe opened in Scrapbook Kitchen: Chef John's Buttermilk Biscuits with source, tags, ingredients, and steps" />
+      <p class="meta">A saved recipe after AI extraction and my review, with its source, tags, ingredients, and steps.</p>
     </section>
 
     <!-- LIVING PRD (Updated every week!) -->
@@ -192,11 +201,11 @@
       <div class="grid-2">
         <div class="stat-box">
           <div class="stat-label">Cumulative Build Spend</div>
-          <div class="stat-value">[Record actual spend]</div>
+          <div class="stat-value">$5.04</div>
         </div>
         <div class="stat-box">
           <div class="stat-label">Est. Cost Per User Run</div>
-          <div class="stat-value">[Not yet estimated]</div>
+          <div class="stat-value">~$0.002 per recipe</div>
         </div>
         <div class="stat-box">
           <div class="stat-label">User Evidence (Analytics from Build 2)</div>
@@ -217,10 +226,10 @@
       <div class="log-entry">
         <h3>Build 1 · Intent.md & Throwaway Prototype (Due Nov 9)</h3>
         <ul>
-          <li><strong>What shipped:</strong> [What you actually built; link your local prototype screenshot or GIF above.]</li>
-          <li><strong>Things learned with AI:</strong> [What you learned from AI practice and Terminus Episodes 1 and 2.]</li>
-          <li><strong>What broke / changed in PRD:</strong> [Fill in]</li>
-          <li><strong>Cost & time this week:</strong> $[0.00] · [0] hours</li>
+          <li><strong>What shipped:</strong> PRD v1 and a working local prototype (<a href="#live-demo">screenshots above</a>). I upload one or more screenshots or paste recipe text, AI turns it into a clean recipe, and I review it, save it as "want to try" or "favorite," and search for it later. I tested it on real recipes from a handwritten family card, a social media caption, an ad-heavy recipe website, and an All Recipes page. It got every ingredient and step right on the three I checked line by line.</li>
+          <li><strong>Things learned with AI:</strong> In Terminus Episodes 1 and 2, I learned the basics: the difference between Git and GitHub, what it means to push, and how to keep API keys in a <code>.env</code> file so they're never pushed publicly to GitHub. It surprised me how easy it was to use a coding agent to build this, and that it told me exactly what still needed to be done.</li>
+          <li><strong>What broke / changed in PRD:</strong> None of my real recipes fit on one screen. They took 3–5 screenshots each, so the PRD now says "upload one or more images," and the app merges overlapping screenshots. Handwritten family recipes became a source I hadn't planned for, so the AI marks words it's unsure of for me to check. Screenshots rarely include a link, so linking back to the original means pasting it myself. Searching by description, like "quick dinner," depends on tags the AI adds, which I still need to test with more recipes.</li>
+          <li><strong>Cost & time this week:</strong> $5.04 ($5 Claude Code, my share of a $20/month Pro plan, + $0.04 OpenRouter) · 4 hours</li>
         </ul>
       </div>
 
