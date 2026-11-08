@@ -42,4 +42,13 @@ git clone https://github.com/building-with-ai-f26/<your-repo-name>.git
 cd <your-repo-name>
 ```
 
+To run Scrapbook Kitchen (needs Node.js 22+; no packages to install):
+
+```bash
+cp .env.example .env   # then put your real OpenRouter key in .env
+node server.js         # then open http://localhost:3000
+```
+
+Saved recipes and screenshots go in `data/`, which is git-ignored and stays on your computer.
+
 If your app needs API keys, use a local environment file such as `.env`. Keep private keys out of source code, browser code, screenshots, and commits. The template ignores `.env`; `.env.example` contains placeholders only.

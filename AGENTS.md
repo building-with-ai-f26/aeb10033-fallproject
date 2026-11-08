@@ -3,15 +3,16 @@
 > Give this file to your coding agent and check that it is using these instructions. Keep the stack, commands, and ground rules current.
 
 ## 1. Project Overview
-- **What this repo builds:** [1–2 sentence summary]
-- **Primary user & core workflow:** [See the living PRD in `docs/index.html`]
-- **Tech stack:** [e.g., Python 3.12 / FastAPI / Next.js / SQLite / OpenRouter API]
+- **What this repo builds:** Scrapbook Kitchen, a personal recipe saver. You upload screenshots or photos of a recipe (social media posts, websites, cookbooks, handwritten cards) or paste text; AI turns them into a clean recipe you review, save as "want to try" or "favorite," and search later.
+- **Primary user & core workflow:** See the living PRD in `docs/index.html`.
+- **Tech stack:** Node.js 22+ using only built-in modules (no npm packages) / one HTML page with plain JavaScript / OpenRouter API (default model `anthropic/claude-haiku-5.5`) / recipes stored in `data/recipes.json` and screenshots in `data/images/` (both git-ignored).
+- **Main files:** `server.js` (server, AI prompt, save, search) and `public/index.html` (the page).
 
 ## 2. Commands
-- **Install dependencies:** `[e.g., npm install / uv sync]`
-- **Run locally:** `[e.g., npm run dev]`
-- **Run deterministic tests:** `[e.g., pytest / npm test]`
-- **Run model evals:** `[e.g., python tests/eval.py]`
+- **Install dependencies:** None. Needs Node.js 22+ and a `.env` file copied from `.env.example` with a real `OPENROUTER_API_KEY`.
+- **Run locally:** `node server.js`, then open http://localhost:3000
+- **Run deterministic tests:** None yet.
+- **Run model evals:** None yet (Build 4).
 
 ## 3. Non-Negotiable Engineering Rules
 1. **Plan before coding:** Before touching multiple files, propose a brief plan and wait for approval.
