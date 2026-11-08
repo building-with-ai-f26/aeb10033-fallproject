@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Scrapbook Kitchen</title>
+  <style>
+    :root {
+      --bg: #faf7f2; --card: #fff; --text: #2b2420; --muted: #6b6058;
+      --border: #e6ded3; --accent: #b4532a; --warn-bg: #fff6db; --warn-border: #e8c766;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+           background: var(--bg); color: var(--text); line-height: 1.5; }
+    .container { max-width: 760px; margin: 0 auto; padding: 32px 16px 64px; }
+    h1 { margin: 0 0 4px; font-size: 30px; }
+    .tagline { margin: 0 0 24px; color: var(--muted); }
+    section { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+    h2 { margin: 0 0 12px; font-size: 20px; }
+    label { display: block; font-weight: 600; font-size: 14px; margin: 12px 0 4px; }
+    .hint { font-weight: 400; color: var(--muted); }
+    input[type=text], input[type=url], input[type=search], textarea, select {
+      width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font: inherit; background: #fff;
+    }
+    textarea { min-height: 90px; resize: vertical; }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; }
+    .row > * { flex: 1 1 200px; }
+    button { padding: 10px 18px; border: 0; border-radius: 8px; font: inherit; font-weight: 600; cursor: pointer;
+             background: var(--accent); color: #fff; margin-top: 16px; }
+    button.secondary { background: #fff; color: var(--text); border: 1px solid var(--border); }
+    button:disabled { opacity: 0.6; cursor: wait; }
+    .thumbs { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+    .thumbs img { height: 110px; border-radius: 6px; border: 1px solid var(--border); }
+    .status-msg { margin-top: 12px; color: var(--muted); font-size: 14px; }
+    .error { color: #b42318; }
+    .warn { background: var(--warn-bg); border: 1px solid var(--warn-border); border-radius: 8px; padding: 10px 14px; margin: 12px 0; }
+    .warn ul { margin: 6px 0 0; padding-left: 20px; }
+    .radio-row { display: flex; gap: 20px; margin-top: 4px; }
+    .radio-row label { font-weight: 400; margin: 0; }
+    details.recipe { border-top: 1px solid var(--border); padding: 12px 0; }
+    details.recipe:first-of-type { border-top: 0; }
+    details.recipe summary { cursor: pointer; font-weight: 600; }
+    .meta { color: var(--muted); font-size: 14px; font-weight: 400; }
+    .badge { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 999px; background: #f3e8de; margin-left: 6px; }
+    .tag { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 999px; background: #eef2ea; margin: 2px 4px 2px 0; }
+    .recipe h4 { margin: 14px 0 4px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Scrapbook Kitchen</h1>
+    <p class="tagline">Your recipe scrapbook, from screenshots, cookbooks, and everything in between.</p>
+
+    <!-- 1. ADD -->
+    <section id="add">
+      <h2>1. Add a recipe</h2>
+      <label for="files">Screenshots or photos <span class="hint">(choose all the screenshots for one recipe; they're sorted by file name)</span></label>
+      <input id="files" type="file" accept="image/*" multiple />
+      <div id="thumbs" class="thumbs"></div>
+
+      <label for="pasted">Or paste recipe text <span class="hint">(optional)</span></label>
+      <textarea id="pasted" placeholder="Paste a caption or recipe here"></textarea>
+
+      <button id="extract-btn">Read recipe with AI</button>
+      <div id="extract-status" class="status-msg"></div>
+    </section>
+
+    <!-- 2. REVIEW (hidden until the AI returns a draft) -->
+    <section id="review" hidden>
+      <h2>2. Review and fix</h2>
+      <div id="uncertain"></div>
+
+      <label for="f-title">Title</label>
+      <input id="f-title" type="text" />
+
+      <div class="row">
+        <div>
+          <label for="f-source-name">Where it came from</label>
+          <input id="f-source-name" type="text" placeholder="Creator, website, cookbook, or person" />
+        </div>
+        <div>
+          <label for="f-source-url">Link to the original <span class="hint">(optional)</span></label>
+          <input id="f-source-url" type="url" placeholder="https://..." />
+        </div>
+      </div>
+
+      <div class="row">
+        <div><label for="f-servings">Servings</label><input id="f-servings" type="text" /></div>
+        <div><label for="f-time">Total time</label><input id="f-time" type="text" /></div>
+      </div>
+
+      <label for="f-ingredients">Ingredients <span class="hint">(one per line; start a line with # for a section, like "# Sauce")</span></label>
+      <textarea id="f-ingredients" style="min-height: 200px"></textarea>
+
+      <label for="f-steps">Steps <span class="hint">(one per line)</span></label>
+      <textarea id="f-steps" style="min-height: 200px"></textarea>
+
+      <label for="f-tags">Tags <span class="hint">(comma-separated; used for search, like "quick, dinner, chicken")</span></label>
+      <input id="f-tags" type="text" />
+
+      <label for="f-notes">Notes</label>
+      <textarea id="f-notes" style="min-height: 60px"></textarea>
+
+      <label>Save as</label>
+      <div class="radio-row">
+        <label><input type="radio" name="status" value="want_to_try" checked /> Want to try</label>
+        <label><input type="radio" name="status" value="favorite" /> Favorite</label>
+      </div>
+
+      <button id="save-btn">Save recipe</button>
+      <button id="cancel-btn" class="secondary">Discard</button>
+      <div id="save-status" class="status-msg"></div>
+    </section>
+
+    <!-- 3. SEARCH -->
+    <section id="saved">
+      <h2>3. My recipes</h2>
+      <div class="row">
+        <input id="search" type="search" placeholder='Search, like "brownie" or "quick dinner"' />
+        <select id="status-filter" style="flex: 0 1 180px">
+          <option value="">All</option>
+          <option value="want_to_try">Want to try</option>
+          <option value="favorite">Favorites</option>
+        </select>
+      </div>
+      <div id="results" style="margin-top: 12px"></div>
+    </section>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let images = []; // resized screenshots for the recipe being added (JPEG data URLs)
+
+    // Escape text before putting it into HTML, so recipe text can't break the page.
+    const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+    // Shrink each screenshot (longest side 2000px) so uploads and AI costs stay small.
+    async function resizeToJpeg(file) {
+      const bitmap = await createImageBitmap(file);
+      const scale = Math.min(1, 2000 / Math.max(bitmap.width, bitmap.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(bitmap.width * scale);
+      canvas.height = Math.round(bitmap.height * scale);
+      canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL("image/jpeg", 0.85);
+    }
+
+    $("files").addEventListener("change", async (e) => {
+      const files = [...e.target.files].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+      $("extract-status").textContent = files.length ? "Preparing images..." : "";
+      images = await Promise.all(files.map(resizeToJpeg));
+      $("thumbs").innerHTML = images.map((src) => `<img src="${src}" alt="Screenshot preview" />`).join("");
+      $("extract-status").textContent = "";
+    });
+
+    // ---- Step 1 -> 2: ask the server to read the recipe ----
+    $("extract-btn").addEventListener("click", async () => {
+      const text = $("pasted").value;
+      if (!images.length && !text.trim()) {
+        $("extract-status").innerHTML = '<span class="error">Choose at least one screenshot or paste some text.</span>';
+        return;
+      }
+      $("extract-btn").disabled = true;
+      $("extract-status").textContent = "Reading your recipe... (this can take 10-30 seconds)";
+      try {
+        const res = await fetch("/api/extract", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ images, text }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        fillReview(data.recipe);
+        const u = data.usage;
+        $("extract-status").textContent =
+          `Done. Cost: $${u.cost_usd != null ? u.cost_usd.toFixed(4) : "unknown"} (${u.input_tokens} in / ${u.output_tokens} out tokens, ${u.model})`;
+      } catch (err) {
+        $("extract-status").innerHTML = `<span class="error">${esc(err.message)}</span>`;
+      } finally {
+        $("extract-btn").disabled = false;
+      }
+    });
+
+    function fillReview(r) {
+      $("f-title").value = r.title;
+      $("f-source-name").value = r.source_name;
+      $("f-source-url").value = r.source_url;
+      $("f-servings").value = r.servings;
+      $("f-time").value = r.total_time;
+      $("f-ingredients").value = r.ingredient_groups
+        .map((g) => (g.name ? `# ${g.name}\n` : "") + g.items.join("\n"))
+        .join("\n\n");
+      $("f-steps").value = r.steps.join("\n");
+      $("f-tags").value = r.tags.join(", ");
+      $("f-notes").value = r.notes;
+
+      const warnings = [...r.uncertain];
+      if (!r.is_recipe) warnings.unshift("The AI doesn't think this is a recipe.");
+      $("uncertain").innerHTML = warnings.length
+        ? `<div class="warn"><strong>Check these. The AI wasn't sure:</strong><ul>${warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul></div>`
+        : "";
+      $("save-status").textContent = "";
+      $("review").hidden = false;
+      $("review").scrollIntoView({ behavior: "smooth" });
+    }
+
+    // Turn the ingredients box back into groups: "# Name" starts a new section.
+    function parseIngredients(text) {
+      const groups = [{ name: "", items: [] }];
+      for (const line of text.split("\n").map((l) => l.trim()).filter(Boolean)) {
+        if (line.startsWith("#")) groups.push({ name: line.replace(/^#+\s*/, ""), items: [] });
+        else groups[groups.length - 1].items.push(line);
+      }
+      return groups.filter((g) => g.items.length);
+    }
+
+    // ---- Step 2: save the reviewed recipe ----
+    $("save-btn").addEventListener("click", async () => {
+      const recipe = {
+        title: $("f-title").value,
+        source_name: $("f-source-name").value,
+        source_url: $("f-source-url").value,
+        servings: $("f-servings").value,
+        total_time: $("f-time").value,
+        ingredient_groups: parseIngredients($("f-ingredients").value),
+        steps: $("f-steps").value.split("\n"),
+        tags: $("f-tags").value.split(","),
+        notes: $("f-notes").value,
+        status: document.querySelector('input[name="status"]:checked').value,
+      };
+      $("save-btn").disabled = true;
+      try {
+        const res = await fetch("/api/recipes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ recipe, images }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        resetAdd();
+        $("extract-status").textContent = `Saved "${data.title}".`;
+        loadRecipes();
+      } catch (err) {
+        $("save-status").innerHTML = `<span class="error">${esc(err.message)}</span>`;
+      } finally {
+        $("save-btn").disabled = false;
+      }
+    });
+
+    $("cancel-btn").addEventListener("click", () => {
+      resetAdd();
+      $("extract-status").textContent = "Discarded.";
+    });
+
+    function resetAdd() {
+      images = [];
+      $("files").value = "";
+      $("pasted").value = "";
+      $("thumbs").innerHTML = "";
+      $("review").hidden = true;
+    }
+
+    // ---- Step 3: list and search ----
+    const statusLabel = { want_to_try: "Want to try", favorite: "Favorite" };
+    const safeLink = (url) => (/^https?:\/\//i.test(url) ? url : "");
+
+    async function loadRecipes() {
+      const params = new URLSearchParams({ q: $("search").value, status: $("status-filter").value });
+      const res = await fetch(`/api/recipes?${params}`);
+      const recipes = await res.json();
+      if (!res.ok) {
+        $("results").innerHTML = `<p class="error">${esc(recipes.error)}</p>`;
+        return;
+      }
+      if (!recipes.length) {
+        $("results").innerHTML = `<p class="meta">${$("search").value ? "No recipes match that search." : "No recipes saved yet."}</p>`;
+        return;
+      }
+      $("results").innerHTML = recipes.map((r) => {
+        const link = safeLink(r.source_url);
+        const source = r.source_name || link
+          ? `From: ${esc(r.source_name)} ${link ? `(<a href="${esc(link)}" target="_blank" rel="noopener">original</a>)` : ""}`
+          : "";
+        return `<details class="recipe">
+          <summary>${esc(r.title)} <span class="badge">${statusLabel[r.status]}</span>
+            <div class="meta">${source}</div></summary>
+          <div class="meta">${[r.servings && `Serves: ${esc(r.servings)}`, r.total_time && `Time: ${esc(r.total_time)}`].filter(Boolean).join(" · ")}</div>
+          <div>${r.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join("")}</div>
+          <h4>Ingredients</h4>
+          ${r.ingredient_groups.map((g) => `${g.name ? `<strong>${esc(g.name)}</strong>` : ""}<ul>${g.items.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>`).join("")}
+          <h4>Steps</h4>
+          <ol>${r.steps.map((s) => `<li>${esc(s)}</li>`).join("")}</ol>
+          ${r.notes ? `<h4>Notes</h4><p>${esc(r.notes)}</p>` : ""}
+          ${r.images.length ? `<h4>Original screenshots</h4><div class="thumbs">${r.images.map((f) => `<a href="/images/${esc(f)}" target="_blank"><img src="/images/${esc(f)}" alt="Original screenshot" /></a>`).join("")}</div>` : ""}
+        </details>`;
+      }).join("");
+    }
+
+    let searchTimer;
+    $("search").addEventListener("input", () => { clearTimeout(searchTimer); searchTimer = setTimeout(loadRecipes, 250); });
+    $("status-filter").addEventListener("change", loadRecipes);
+    loadRecipes();
+  </script>
+</body>
+</html>

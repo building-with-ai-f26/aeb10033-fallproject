@@ -17,12 +17,12 @@ Use this as a scratchpad if helpful. Publish the required PRD and Build 1 log on
 *Describe the concrete recurring problem from work, school, or life, and what "done" looks like for the user.*
 
 - **Current painful workflow (before):** I save several recipes a week, mostly by saving videos on social media, but I often never go back to them. The recipes I love and use again and again, I email to myself as links. About once a week I try to find something I saved. I often forget I saved it, can't find the video again, or remember seeing something amazing but can't remember what it was.
-- **New workflow with this product (after):** When I find a recipe, I upload a screenshot or a photo of a cookbook page, or paste a website link or recipe text. AI turns it into a clean recipe with a title, ingredients, steps, and where it came from. I review and fix the result, then save it as "want to try" or "favorite" with a link back to the original image or post. Later, I search my saved recipes by keyword ("brownie", "chicken", "stuffing") or by description ("quick dinner", "chocolate desserts"), pull one up, and cook from it. The job is done when I've captured the recipe and can cook from it.
+- **New workflow with this product (after):** When I find a recipe, I upload one or more screenshots or photos (of a social media post, a recipe website, a cookbook page, or a handwritten family recipe), or paste recipe text. AI turns it into a clean recipe with a title, ingredients, steps, and where it came from. I review and fix the result, then save it as "want to try" or "favorite" with a link back to the original image or post. Later, I search my saved recipes by keyword ("brownie", "chicken", "stuffing") or by description ("quick dinner", "chocolate desserts"), pull one up, and cook from it. The job is done when I've captured the recipe and can cook from it.
 - **Why this is useful** *(used weekly / saves real time / worth paying for)*: I'd use it every week, both to save recipes and to look for one. It keeps every recipe in one searchable place, so I stop losing the ones I wanted to try. It's a free personal app, and I'll cover the small AI costs myself.
 
 ## 3. What is in and out of scope?
 
-- **One core workflow:** Upload an image (or paste a link or text) → AI extracts the recipe → I review and fix it → save it as "want to try" or "favorite" with its source attached → search by keyword or description and cook from it. I'll start on my laptop because the app runs locally through Week 4, even though I'd normally do this from my phone.
+- **One core workflow:** Upload one or more images (or paste text) → AI extracts the recipe → I review and fix it → save it as "want to try" or "favorite" with its source attached → search by keyword or description and cook from it. I'll start on my laptop because the app runs locally through Week 4, even though I'd normally do this from my phone.
 *You have six weeks. List the features, integrations, and polish you are deliberately NOT building.*
 
 - [ ] Not building: Meal planning
@@ -40,5 +40,10 @@ Use this as a scratchpad if helpful. Publish the required PRD and Build 1 log on
 ## 4. Rough Local Prototype
 *What did you spike this week to test the core idea, and what did you learn from throwing it at the problem?*
 
-- **Local run command / branch / screenshot:** Not started yet.
-- **What worked vs. what surprised me:** Not started yet.
+- **Local run command / branch / screenshot:** `node server.js`, then open http://localhost:3000 (branch `build-1-prototype`). Screenshot: [add yours]
+- **What worked vs. what surprised me:**
+  - I tested 3 real recipes (11 screenshots): a handwritten soda bread recipe, a social media caption, and an ad-heavy recipe website. The cheap model (`claude-haiku-5.5`) got every ingredient and step right for all three, for about $0.002 per recipe.
+  - Surprise: none of my recipes fit on one screen. They took 3–5 screenshots each, so the app had to accept several images per recipe and merge overlapping ones.
+  - Surprise: handwritten family recipes are a real source I hadn't planned for. The AI reads them well but marks words it's unsure of so I can check them.
+  - The stronger model (`claude-sonnet-5.5`) cost about 15 times as much ($0.026 per recipe) and wasn't noticeably better on the handwritten recipe.
+  - Screenshots rarely include a link, so the source is usually a name (a creator, website, or person). Linking back to the original video means pasting the link myself.
