@@ -88,9 +88,139 @@ const RECIPE_SCHEMA = {
   },
 };
 
+// ---- Reading a recipe from a website link ----
+// An error whose message is safe and useful to show the user (sent as a 400, not a 500).
+class UserError extends Error {
+  constructor(message) {
+    super(message);
+    this.status = 400;
+  }
+}
+
+// Social media pages need a login and usually keep the recipe in the video.
+const SOCIAL_SITES = /(^|\.)(instagram\.com|tiktok\.com|facebook\.com|fb\.watch|youtube\.com|youtu\.be|pinterest\.com|x\.com|twitter\.com|threads\.net)$/i;
+const MAX_PAGE_BYTES = 5 * 1024 * 1024;
+
+async function fetchPage(link) {
+  let url;
+  try {
+    url = new URL(link);
+  } catch {
+    throw new UserError("That doesn't look like a link. It should start with https://");
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    throw new UserError("Only website links (starting with https://) can be read.");
+  }
+  if (SOCIAL_SITES.test(url.hostname)) {
+    throw new UserError("Social media links can't be read yet (they need a login, and the recipe is often in the video). Take screenshots of the post instead.");
+  }
+
+  let res;
+  try {
+    res = await fetch(url, {
+      headers: {
+        // Some recipe sites turn away requests that don't look like a normal browser.
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36",
+        Accept: "text/html",
+      },
+      redirect: "follow",
+      signal: AbortSignal.timeout(15000),
+    });
+  } catch (err) {
+    if (err.name === "TimeoutError") throw new UserError("That website took too long to respond. Try again, or use screenshots.");
+    throw new UserError("Couldn't reach that website. Check the link, or use screenshots.");
+  }
+  if (res.status === 404) {
+    throw new UserError("That page wasn't found. Check that the link is complete.");
+  }
+  if (!res.ok) {
+    throw new UserError(`This website blocks apps from reading its pages (error ${res.status}). Copy the recipe text from the page, paste it in the text box (keep the link too, so it's saved as the source), and try again.`);
+  }
+  if (!(res.headers.get("content-type") || "").includes("text/html")) {
+    throw new UserError("That link isn't a web page. Paste the link to the recipe's page.");
+  }
+
+  // Read the page, but stop at 5 MB so a huge page can't overload the app.
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of res.body) {
+    size += chunk.length;
+    if (size > MAX_PAGE_BYTES) break;
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+// Most recipe sites include a hidden, machine-readable copy of the recipe (schema.org "Recipe")
+// for search engines. If it's there, it's cleaner than the page text: no ads, no life story.
+function findStructuredRecipe(html) {
+  const blocks = html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi);
+  for (const [, raw] of blocks) {
+    let data;
+    try {
+      data = JSON.parse(raw.trim());
+    } catch {
+      continue; // some sites have broken blocks; skip them
+    }
+    const recipe = findRecipeObject(data);
+    if (recipe) {
+      const keep = ["name", "author", "description", "recipeYield", "prepTime", "cookTime", "totalTime",
+        "recipeIngredient", "recipeInstructions", "recipeCategory", "recipeCuisine", "keywords"];
+      return Object.fromEntries(keep.filter((k) => recipe[k] !== undefined).map((k) => [k, recipe[k]]));
+    }
+  }
+  return null;
+}
+
+function findRecipeObject(node) {
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      const found = findRecipeObject(item);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (node && typeof node === "object") {
+    const types = [].concat(node["@type"]);
+    if (types.includes("Recipe")) return node;
+    if (node["@graph"]) return findRecipeObject(node["@graph"]);
+  }
+  return null;
+}
+
+// Fallback when a page has no structured recipe: its visible text, without code and menus.
+function pageText(html) {
+  return html
+    .replace(/<(script|style|noscript|svg|nav|footer|aside|iframe|form)\b[\s\S]*?<\/\1>/gi, " ")
+    .replace(/<br\s*\/?>|<\/(p|div|li|h[1-6]|tr)>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;|&rsquo;|&lsquo;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n\s*\n+/g, "\n")
+    .trim()
+    .slice(0, 40000); // about 10,000 tokens, roughly $0.001
+}
+
+async function readRecipeLink(link) {
+  const html = await fetchPage(link);
+  const site = new URL(link).hostname.replace(/^www\./, "");
+  const structured = findStructuredRecipe(html);
+  if (structured) {
+    console.log(`[link] ${site}: found the recipe's structured data`);
+    return `Recipe from the website ${site} (structured recipe data from the page; times may be written like PT1H30M, which means 1 hr 30 min):\n\n${JSON.stringify(structured, null, 1)}`;
+  }
+  console.log(`[link] ${site}: no structured data, using the page text`);
+  return `Text of a recipe web page from ${site} (ignore menus, ads, comments, and the story before the recipe):\n\n${pageText(html)}`;
+}
+
 async function extractRecipe({ images, text, model }) {
   const content = [];
-  if (text.trim()) content.push({ type: "text", text: `Recipe text pasted by the user:\n\n${text}` });
+  if (text.trim()) content.push({ type: "text", text });
   if (images.length) content.push({ type: "text", text: `Extract the recipe from these ${images.length} screenshot(s), in order.` });
   for (const url of images) content.push({ type: "image_url", image_url: { url } });
 
@@ -205,14 +335,30 @@ const server = http.createServer(async (req, res) => {
       return fs.createReadStream(file).pipe(res);
     }
 
-    // Screenshots/text -> AI -> recipe draft for review (nothing is saved yet)
+    // Link/screenshots/text -> AI -> recipe draft for review (nothing is saved yet)
     if (req.method === "POST" && url.pathname === "/api/extract") {
-      const { images = [], text = "", model } = await readJson(req);
+      const { images = [], text = "", link = "", model } = await readJson(req);
+      const pasted = String(text).trim();
+      const recipeLink = String(link).trim();
       if (!images.every(isJpegDataUrl)) return sendJson(res, 400, { error: "Images must be JPEG data URLs." });
-      if (!images.length && !String(text).trim()) {
-        return sendJson(res, 400, { error: "Add at least one screenshot or some recipe text." });
+      if (!images.length && !pasted && !recipeLink) {
+        return sendJson(res, 400, { error: "Add a recipe link, a screenshot, or some recipe text." });
       }
-      return sendJson(res, 200, await extractRecipe({ images, text: String(text), model: model || MODEL }));
+
+      const parts = [];
+      if (recipeLink) {
+        try {
+          parts.push(await readRecipeLink(recipeLink));
+        } catch (err) {
+          // If the site blocks us but you also gave screenshots or text, use those and keep the link as the source.
+          if (!(err instanceof UserError) || (!pasted && !images.length)) throw err;
+          console.log(`[link] couldn't read the page, using your text/screenshots instead: ${err.message}`);
+        }
+      }
+      if (pasted) parts.push(`Recipe text pasted by the user:\n\n${pasted}`);
+      const result = await extractRecipe({ images, text: parts.join("\n\n---\n\n"), model: model || MODEL });
+      if (recipeLink) result.recipe.source_url = recipeLink; // the link you pasted is the source
+      return sendJson(res, 200, result);
     }
 
     // List and search saved recipes
@@ -255,8 +401,12 @@ const server = http.createServer(async (req, res) => {
 
     sendJson(res, 404, { error: "Not found" });
   } catch (err) {
-    console.error(err);
-    sendJson(res, 500, { error: err.message });
+    if (err instanceof UserError) {
+      console.log(`[note] ${err.message}`);
+    } else {
+      console.error(err);
+    }
+    sendJson(res, err.status || 500, { error: err.message });
   }
 });
 

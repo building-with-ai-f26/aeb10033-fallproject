@@ -312,7 +312,10 @@
       </label>
       <div id="thumbs" class="thumbs"></div>
 
-      <label for="pasted">Or paste recipe text <span class="hint">(optional)</span></label>
+      <label for="link">Or paste a recipe link <span class="hint">(a recipe website, not social media)</span></label>
+      <input id="link" type="url" placeholder="🔗 https://www.allrecipes.com/recipe/..." />
+
+      <label for="pasted">Or paste recipe text <span class="hint">(if a site won't load from its link, copy the recipe from the page and paste it here)</span></label>
       <textarea id="pasted" placeholder="Paste a caption or recipe here"></textarea>
 
       <button id="extract-btn" class="btn">✨ Read my recipe</button>
@@ -421,6 +424,11 @@
 
     $("files").addEventListener("change", (e) => handleFiles(e.target.files));
 
+    // Pressing Enter in the link box reads the recipe.
+    $("link").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") $("extract-btn").click();
+    });
+
     const dropzone = $("dropzone");
     ["dragenter", "dragover"].forEach((type) => dropzone.addEventListener(type, (e) => {
       e.preventDefault();
@@ -434,6 +442,7 @@
 
     // Fun messages while the AI works.
     const LOADING_MESSAGES = [
+      "Visiting the recipe...",
       "Squinting at the handwriting...",
       "Measuring the flour...",
       "Skipping past the ads...",
@@ -445,8 +454,9 @@
     // ---- Step 1 -> 2: ask the server to read the recipe ----
     $("extract-btn").addEventListener("click", async () => {
       const text = $("pasted").value;
-      if (!images.length && !text.trim()) {
-        $("extract-status").innerHTML = '<span class="error">Choose at least one screenshot or paste some text.</span>';
+      const link = $("link").value.trim();
+      if (!images.length && !text.trim() && !link) {
+        $("extract-status").innerHTML = '<span class="error">Add screenshots, a recipe link, or some recipe text.</span>';
         return;
       }
       $("extract-btn").disabled = true;
@@ -461,7 +471,7 @@
         const res = await fetch("/api/extract", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ images, text }),
+          body: JSON.stringify({ images, text, link }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error);
@@ -554,6 +564,7 @@
     function resetAdd() {
       images = [];
       $("files").value = "";
+      $("link").value = "";
       $("pasted").value = "";
       $("thumbs").innerHTML = "";
       $("review").hidden = true;
