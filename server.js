@@ -40,8 +40,9 @@ function saveRecipes(recipes) {
 }
 
 // ---- Cookbook chapters: every recipe lives in exactly one ----
-// To add a chapter (like Soups or Salads), add one line here. The AI and the page both use this list.
-const CHAPTERS = [
+// Built-in chapters are listed here. Chapters you add in the app are saved in data/chapters.json.
+// The AI and the page both use the combined list.
+const BUILT_IN_CHAPTERS = [
   { name: "Breakfast", emoji: "🥞", hint: "breakfast and brunch foods, like pancakes, eggs, muffins, and donuts" },
   { name: "Dinners", emoji: "🍝", hint: "main dishes for lunch or dinner" },
   { name: "Sides", emoji: "🥗", hint: "side dishes, like vegetables, potatoes, and stuffing" },
@@ -50,11 +51,26 @@ const CHAPTERS = [
   { name: "Snacks", emoji: "🥨", hint: "snacks and appetizers" },
   { name: "Drinks", emoji: "🥤", hint: "drinks and smoothies" },
 ];
-const CHAPTER_NAMES = CHAPTERS.map((c) => c.name);
+const CHAPTERS_FILE = path.join(DATA_DIR, "chapters.json");
 const STATUSES = ["want_to_try", "favorite"];
 
+function loadCustomChapters() {
+  if (!fs.existsSync(CHAPTERS_FILE)) return [];
+  return JSON.parse(fs.readFileSync(CHAPTERS_FILE, "utf8"));
+}
+
+function allChapters() {
+  return [...BUILT_IN_CHAPTERS, ...loadCustomChapters()];
+}
+
+function chapterNames() {
+  return allChapters().map((c) => c.name);
+}
+
 // ---- The AI step: screenshots/text in, structured recipe out ----
-const PROMPT = `You turn photos and screenshots of recipes into a clean, structured recipe.
+// Built fresh for each recipe, so chapters you add are included.
+function buildPrompt(chapters) {
+  return `You turn photos and screenshots of recipes into a clean, structured recipe.
 
 The user may send several screenshots of ONE recipe, in order. They often overlap: the same lines can appear at the bottom of one screenshot and the top of the next. Merge them into one recipe and include each ingredient and step only once.
 
@@ -72,38 +88,41 @@ Rules:
 - source_url: a complete link to the specific recipe page (starting with http) only if one is fully visible. A bare domain is not a link. Otherwise "".
 - tags: 4 to 8 short lowercase tags for search: the meal type (breakfast, lunch, dinner, dessert, snack, side, drink, baking), "meal" for any main dish, "quick" if it takes about 30 minutes or less in total, the main ingredients or flavors (like chicken or chocolate), and the cuisine if obvious.
 - chapter: the ONE cookbook chapter this recipe belongs in most. Choose from:
-${CHAPTERS.map((c) => `  - ${c.name}: ${c.hint}`).join("\n")}
+${chapters.map((c) => `  - ${c.name}${c.hint ? `: ${c.hint}` : ""}`).join("\n")}
 - notes: short tips from the source that are not steps (like substitutions). Use "" if none.
 - If the images do not contain a recipe, set is_recipe to false and explain why in "uncertain".`;
+}
 
-const RECIPE_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: ["is_recipe", "title", "source_name", "source_url", "servings", "total_time",
-    "ingredient_groups", "steps", "tags", "chapter", "notes", "uncertain"],
-  properties: {
-    is_recipe: { type: "boolean" },
-    title: { type: "string" },
-    source_name: { type: "string" },
-    source_url: { type: "string" },
-    servings: { type: "string" },
-    total_time: { type: "string" },
-    ingredient_groups: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["name", "items"],
-        properties: { name: { type: "string" }, items: { type: "array", items: { type: "string" } } },
+function recipeSchema(chapterList) {
+  return {
+    type: "object",
+    additionalProperties: false,
+    required: ["is_recipe", "title", "source_name", "source_url", "servings", "total_time",
+      "ingredient_groups", "steps", "tags", "chapter", "notes", "uncertain"],
+    properties: {
+      is_recipe: { type: "boolean" },
+      title: { type: "string" },
+      source_name: { type: "string" },
+      source_url: { type: "string" },
+      servings: { type: "string" },
+      total_time: { type: "string" },
+      ingredient_groups: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["name", "items"],
+          properties: { name: { type: "string" }, items: { type: "array", items: { type: "string" } } },
+        },
       },
+      steps: { type: "array", items: { type: "string" } },
+      tags: { type: "array", items: { type: "string" } },
+      chapter: { type: "string", enum: chapterList },
+      notes: { type: "string" },
+      uncertain: { type: "array", items: { type: "string" } },
     },
-    steps: { type: "array", items: { type: "string" } },
-    tags: { type: "array", items: { type: "string" } },
-    chapter: { type: "string", enum: CHAPTER_NAMES },
-    notes: { type: "string" },
-    uncertain: { type: "array", items: { type: "string" } },
-  },
-};
+  };
+}
 
 // ---- Reading a recipe from a website link ----
 // An error whose message is safe and useful to show the user (sent as a 400, not a 500).
@@ -241,6 +260,7 @@ async function extractRecipe({ images, text, model }) {
   if (images.length) content.push({ type: "text", text: `Extract the recipe from these ${images.length} screenshot(s), in order.` });
   for (const url of images) content.push({ type: "image_url", image_url: { url } });
 
+  const chapters = allChapters();
   const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${API_KEY}`, "Content-Type": "application/json" },
@@ -249,10 +269,13 @@ async function extractRecipe({ images, text, model }) {
       max_tokens: 4000,
       temperature: 0,
       messages: [
-        { role: "system", content: PROMPT },
+        { role: "system", content: buildPrompt(chapters) },
         { role: "user", content },
       ],
-      response_format: { type: "json_schema", json_schema: { name: "recipe", strict: true, schema: RECIPE_SCHEMA } },
+      response_format: {
+        type: "json_schema",
+        json_schema: { name: "recipe", strict: true, schema: recipeSchema(chapters.map((c) => c.name)) },
+      },
       usage: { include: true }, // ask OpenRouter to report the cost of this call
     }),
   });
@@ -309,7 +332,7 @@ function cleanRecipe(r) {
       .filter((g) => g.items.length),
     steps: list(r.steps),
     tags: list(r.tags).map((t) => t.toLowerCase()),
-    chapter: CHAPTER_NAMES.includes(r.chapter) ? r.chapter : "", // "" shows as Unsorted
+    chapter: chapterNames().includes(r.chapter) ? r.chapter : "", // "" shows as Unsorted
     notes: str(r.notes),
   };
 }
@@ -420,14 +443,31 @@ const server = http.createServer(async (req, res) => {
 
     // The chapter list, so the page shows the same chapters the AI uses
     if (req.method === "GET" && url.pathname === "/api/chapters") {
-      return sendJson(res, 200, CHAPTERS.map(({ name, emoji }) => ({ name, emoji })));
+      return sendJson(res, 200, allChapters().map(({ name, emoji }) => ({ name, emoji })));
+    }
+
+    // Add your own chapter (like Soups). Returns the updated chapter list.
+    if (req.method === "POST" && url.pathname === "/api/chapters") {
+      const { name = "", emoji = "" } = await readJson(req);
+      const cleanName = String(name).trim().replace(/\s+/g, " ");
+      if (!cleanName || cleanName.length > 30) return sendJson(res, 400, { error: "A chapter name needs 1 to 30 characters." });
+      if (chapterNames().some((n) => n.toLowerCase() === cleanName.toLowerCase())) {
+        return sendJson(res, 400, { error: `You already have a "${cleanName}" chapter.` });
+      }
+      // Keep just the first emoji (or character) typed; default to a notebook.
+      const firstSymbol = [...new Intl.Segmenter().segment(String(emoji).trim())][0]?.segment;
+      const custom = loadCustomChapters();
+      custom.push({ name: cleanName, emoji: firstSymbol || "📒" });
+      fs.writeFileSync(CHAPTERS_FILE, JSON.stringify(custom, null, 2));
+      console.log(`[chapter] added "${cleanName}"`);
+      return sendJson(res, 201, allChapters().map(({ name: n, emoji: e }) => ({ name: n, emoji: e })));
     }
 
     // Move a saved recipe to another chapter, or switch "want to try" / "favorite"
     const recipeRoute = url.pathname.match(/^\/api\/recipes\/([\w-]+)$/);
     if (req.method === "PATCH" && recipeRoute) {
       const { chapter, status } = await readJson(req);
-      if (chapter !== undefined && !CHAPTER_NAMES.includes(chapter)) return sendJson(res, 400, { error: "Unknown chapter." });
+      if (chapter !== undefined && !chapterNames().includes(chapter)) return sendJson(res, 400, { error: "Unknown chapter." });
       if (status !== undefined && !STATUSES.includes(status)) return sendJson(res, 400, { error: "Unknown status." });
 
       const all = loadRecipes();

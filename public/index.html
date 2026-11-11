@@ -272,7 +272,7 @@
     .pin .meta { display: block; margin-top: 4px; font-size: 12.5px; }
 
     /* ---------- Recipe pop-up ---------- */
-    dialog#recipe-dialog {
+    dialog#recipe-dialog, dialog#chapter-dialog {
       width: min(680px, calc(100% - 24px));
       max-height: calc(100% - 40px);
       padding: 0;
@@ -282,7 +282,8 @@
       color: var(--ink);
       box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
     }
-    dialog#recipe-dialog::backdrop { background: rgba(58, 46, 40, 0.45); }
+    dialog#recipe-dialog::backdrop, dialog#chapter-dialog::backdrop { background: rgba(58, 46, 40, 0.45); }
+    dialog#chapter-dialog { width: min(440px, calc(100% - 24px)); }
     .dialog-inner { position: relative; padding: 26px 22px 22px; }
     .dialog-close {
       position: absolute;
@@ -469,6 +470,27 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
+  <!-- New chapter pop-up: opens when you pick "＋ New chapter…" in a chapter menu -->
+  <dialog id="chapter-dialog" aria-label="New chapter">
+    <form id="chapter-form" class="dialog-inner">
+      <span class="recipe-title" style="font-size: 30px">＋ New chapter</span>
+      <div class="row">
+        <div style="flex: 3 1 200px">
+          <label for="nc-name">Name</label>
+          <input id="nc-name" type="text" maxlength="30" placeholder="Soups" autocomplete="off" />
+        </div>
+        <div style="flex: 1 1 100px">
+          <label for="nc-emoji">Emoji <span class="hint">(optional)</span></label>
+          <input id="nc-emoji" type="text" placeholder="🍲" autocomplete="off" />
+        </div>
+      </div>
+      <p class="hint" style="margin: 8px 0 0; font-size: 13px">On a Mac, press Ctrl + Cmd + Space to pick an emoji.</p>
+      <div id="nc-error" class="status-msg error"></div>
+      <button type="submit" class="btn">Add chapter</button>
+      <button type="button" id="nc-cancel" class="btn secondary">Cancel</button>
+    </form>
+  </dialog>
+
   <!-- Recipe pop-up: opens when you click a card on the board -->
   <dialog id="recipe-dialog" aria-label="Recipe">
     <div class="dialog-inner">
@@ -580,7 +602,7 @@
 
     function fillReview(r) {
       $("f-title").value = r.title;
-      $("f-chapter").value = r.chapter || chapters[0].name;
+      fillChapterSelect(r.chapter || chapters[0].name);
       $("f-source-name").value = r.source_name;
       $("f-source-url").value = r.source_url;
       $("f-servings").value = r.servings;
@@ -753,8 +775,7 @@
         ? `From ${esc(r.source_name)} ${link ? `(<a href="${esc(link)}" target="_blank" rel="noopener">original</a>)` : ""}`
         : "";
       const facts = [r.servings && `Serves ${esc(r.servings)}`, r.total_time && esc(r.total_time)].filter(Boolean).join(" · ");
-      const chapterOptions = (r.chapter ? "" : `<option value="" selected>Unsorted (pick one)</option>`) +
-        chapters.map((c) => `<option value="${esc(c.name)}" ${c.name === r.chapter ? "selected" : ""}>${c.emoji} ${esc(c.name)}</option>`).join("");
+      const chapterOptions = (r.chapter ? "" : `<option value="" selected>Unsorted (pick one)</option>`) + chapterOptionsHtml(r.chapter);
 
       $("dialog-content").innerHTML = `<div class="recipe">
         <span class="recipe-title">${esc(r.title)}</span>
@@ -808,7 +829,14 @@
       activeChapter = chipBtn.dataset.chapter;
       renderBoard();
     });
-    $("dialog-content").addEventListener("change", (e) => {
+    $("dialog-content").addEventListener("change", async (e) => {
+      if (e.target.id === "d-chapter" && e.target.value === NEW_CHAPTER) {
+        const id = e.target.dataset.id;
+        const created = await askNewChapter();
+        if (created) updateRecipe(id, { chapter: created });
+        else openRecipe(id); // cancelled: put the menu back
+        return;
+      }
       if (e.target.id === "d-chapter") updateRecipe(e.target.dataset.id, { chapter: e.target.value });
       if (e.target.id === "d-status") updateRecipe(e.target.dataset.id, { status: e.target.value });
     });
@@ -821,9 +849,72 @@
     $("search").addEventListener("input", () => { clearTimeout(searchTimer); searchTimer = setTimeout(loadRecipes, 250); });
     $("status-filter").addEventListener("change", loadRecipes);
 
+    // ---- Chapter menus and adding your own chapter ----
+    const NEW_CHAPTER = "__new__"; // the "＋ New chapter…" option at the bottom of every chapter menu
+
+    function chapterOptionsHtml(selected) {
+      return chapters.map((c) => `<option value="${esc(c.name)}" ${c.name === selected ? "selected" : ""}>${c.emoji} ${esc(c.name)}</option>`).join("")
+        + `<option value="${NEW_CHAPTER}">＋ New chapter…</option>`;
+    }
+
+    // The chapter menu in the review step. "prev" remembers the last real choice, for Cancel.
+    function fillChapterSelect(selected) {
+      $("f-chapter").innerHTML = chapterOptionsHtml(selected);
+      $("f-chapter").dataset.prev = $("f-chapter").value;
+    }
+
+    $("f-chapter").addEventListener("change", async () => {
+      if ($("f-chapter").value !== NEW_CHAPTER) {
+        $("f-chapter").dataset.prev = $("f-chapter").value;
+        return;
+      }
+      const created = await askNewChapter();
+      fillChapterSelect(created || $("f-chapter").dataset.prev);
+    });
+
+    // Opens the "New chapter" pop-up. Resolves with the new chapter's name, or null if cancelled.
+    let resolveNewChapter = null;
+    let newChapterName = null;
+    function askNewChapter() {
+      newChapterName = null;
+      $("nc-name").value = "";
+      $("nc-emoji").value = "";
+      $("nc-error").textContent = "";
+      $("chapter-dialog").showModal();
+      $("nc-name").focus();
+      return new Promise((resolve) => { resolveNewChapter = resolve; });
+    }
+
+    $("chapter-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      try {
+        const res = await fetch("/api/chapters", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: $("nc-name").value, emoji: $("nc-emoji").value }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        chapters = data;
+        const added = chapters[chapters.length - 1];
+        newChapterName = added.name;
+        showToast(`New chapter: ${added.emoji} ${added.name}`);
+        renderBoard(); // show its chip
+        $("chapter-dialog").close();
+      } catch (err) {
+        $("nc-error").textContent = err.message;
+      }
+    });
+    $("nc-cancel").addEventListener("click", () => $("chapter-dialog").close());
+    // Runs however the pop-up closes (Add, Cancel, or the Esc key).
+    $("chapter-dialog").addEventListener("close", () => {
+      if (resolveNewChapter) resolveNewChapter(newChapterName);
+      resolveNewChapter = null;
+    });
+
     async function start() {
       chapters = await (await fetch("/api/chapters")).json();
-      $("f-chapter").innerHTML = chapters.map((c) => `<option value="${esc(c.name)}">${c.emoji} ${esc(c.name)}</option>`).join("");
+      fillChapterSelect(chapters[0].name);
       loadRecipes();
     }
     start();
