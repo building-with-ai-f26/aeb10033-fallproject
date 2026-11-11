@@ -39,6 +39,20 @@ function saveRecipes(recipes) {
   fs.writeFileSync(RECIPES_FILE, JSON.stringify(recipes, null, 2));
 }
 
+// ---- Cookbook chapters: every recipe lives in exactly one ----
+// To add a chapter (like Soups or Salads), add one line here. The AI and the page both use this list.
+const CHAPTERS = [
+  { name: "Breakfast", emoji: "🥞", hint: "breakfast and brunch foods, like pancakes, eggs, muffins, and donuts" },
+  { name: "Dinners", emoji: "🍝", hint: "main dishes for lunch or dinner" },
+  { name: "Sides", emoji: "🥗", hint: "side dishes, like vegetables, potatoes, and stuffing" },
+  { name: "Breads", emoji: "🍞", hint: "breads, rolls, and biscuits" },
+  { name: "Desserts", emoji: "🍰", hint: "sweets, like cookies, cakes, pies, and tarts" },
+  { name: "Snacks", emoji: "🥨", hint: "snacks and appetizers" },
+  { name: "Drinks", emoji: "🥤", hint: "drinks and smoothies" },
+];
+const CHAPTER_NAMES = CHAPTERS.map((c) => c.name);
+const STATUSES = ["want_to_try", "favorite"];
+
 // ---- The AI step: screenshots/text in, structured recipe out ----
 const PROMPT = `You turn photos and screenshots of recipes into a clean, structured recipe.
 
@@ -57,6 +71,8 @@ Rules:
 - source_name: who or where the recipe came from, as shown (creator, account, website, cookbook, or a person named in a handwritten note). For a website, use its name or domain here.
 - source_url: a complete link to the specific recipe page (starting with http) only if one is fully visible. A bare domain is not a link. Otherwise "".
 - tags: 4 to 8 short lowercase tags for search: the meal type (breakfast, lunch, dinner, dessert, snack, side, drink, baking), "meal" for any main dish, "quick" if it takes about 30 minutes or less in total, the main ingredients or flavors (like chicken or chocolate), and the cuisine if obvious.
+- chapter: the ONE cookbook chapter this recipe belongs in most. Choose from:
+${CHAPTERS.map((c) => `  - ${c.name}: ${c.hint}`).join("\n")}
 - notes: short tips from the source that are not steps (like substitutions). Use "" if none.
 - If the images do not contain a recipe, set is_recipe to false and explain why in "uncertain".`;
 
@@ -64,7 +80,7 @@ const RECIPE_SCHEMA = {
   type: "object",
   additionalProperties: false,
   required: ["is_recipe", "title", "source_name", "source_url", "servings", "total_time",
-    "ingredient_groups", "steps", "tags", "notes", "uncertain"],
+    "ingredient_groups", "steps", "tags", "chapter", "notes", "uncertain"],
   properties: {
     is_recipe: { type: "boolean" },
     title: { type: "string" },
@@ -83,6 +99,7 @@ const RECIPE_SCHEMA = {
     },
     steps: { type: "array", items: { type: "string" } },
     tags: { type: "array", items: { type: "string" } },
+    chapter: { type: "string", enum: CHAPTER_NAMES },
     notes: { type: "string" },
     uncertain: { type: "array", items: { type: "string" } },
   },
@@ -263,6 +280,7 @@ async function extractRecipe({ images, text, model }) {
 function matchesSearch(recipe, query) {
   const searchable = [
     recipe.title,
+    recipe.chapter, // so "desserts" also finds everything in the Desserts chapter
     recipe.source_name,
     recipe.notes,
     ...recipe.tags,
@@ -291,6 +309,7 @@ function cleanRecipe(r) {
       .filter((g) => g.items.length),
     steps: list(r.steps),
     tags: list(r.tags).map((t) => t.toLowerCase()),
+    chapter: CHAPTER_NAMES.includes(r.chapter) ? r.chapter : "", // "" shows as Unsorted
     notes: str(r.notes),
   };
 }
@@ -388,7 +407,7 @@ const server = http.createServer(async (req, res) => {
       const saved = {
         id,
         ...clean,
-        status: recipe.status === "favorite" ? "favorite" : "want_to_try",
+        status: STATUSES.includes(recipe.status) ? recipe.status : "want_to_try",
         images: imageFiles,
         created_at: new Date().toISOString(),
       };
@@ -397,6 +416,28 @@ const server = http.createServer(async (req, res) => {
       saveRecipes(all);
       console.log(`[save] "${saved.title}" (${saved.status}, ${imageFiles.length} image(s))`);
       return sendJson(res, 201, saved);
+    }
+
+    // The chapter list, so the page shows the same chapters the AI uses
+    if (req.method === "GET" && url.pathname === "/api/chapters") {
+      return sendJson(res, 200, CHAPTERS.map(({ name, emoji }) => ({ name, emoji })));
+    }
+
+    // Move a saved recipe to another chapter, or switch "want to try" / "favorite"
+    const recipeRoute = url.pathname.match(/^\/api\/recipes\/([\w-]+)$/);
+    if (req.method === "PATCH" && recipeRoute) {
+      const { chapter, status } = await readJson(req);
+      if (chapter !== undefined && !CHAPTER_NAMES.includes(chapter)) return sendJson(res, 400, { error: "Unknown chapter." });
+      if (status !== undefined && !STATUSES.includes(status)) return sendJson(res, 400, { error: "Unknown status." });
+
+      const all = loadRecipes();
+      const recipe = all.find((r) => r.id === recipeRoute[1]);
+      if (!recipe) return sendJson(res, 404, { error: "Recipe not found." });
+      if (chapter !== undefined) recipe.chapter = chapter;
+      if (status !== undefined) recipe.status = status;
+      saveRecipes(all);
+      console.log(`[update] "${recipe.title}" -> ${recipe.chapter || "Unsorted"}, ${recipe.status}`);
+      return sendJson(res, 200, recipe);
     }
 
     sendJson(res, 404, { error: "Not found" });

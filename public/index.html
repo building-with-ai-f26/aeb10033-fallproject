@@ -208,32 +208,106 @@
     .radio-row input:checked + span.fav  { background: var(--pink); border-color: #f0a3b1; }
     .radio-row input:focus-visible + span { outline: 3px solid #f6b9ad; }
 
-    /* ---------- Recipe index cards ---------- */
+    /* ---------- Chapter chips (jump to / filter a chapter) ---------- */
     .count { color: var(--muted); font-size: 13px; font-weight: 600; margin: 12px 0 0; }
-    details.recipe {
-      margin: 16px 0;
-      padding: 12px 18px 14px 54px;
-      border-radius: 8px;
-      background-color: #fffef9;
-      /* red margin line + blue ruled lines, like an index card */
-      background-image:
-        linear-gradient(90deg, transparent 38px, #f2b3ab 38px, #f2b3ab 40px, transparent 40px),
-        repeating-linear-gradient(#fffef9 0 27px, #dfe9f5 27px 28px);
-      box-shadow: 0 3px 10px rgba(60, 40, 20, 0.10);
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 0; }
+    .chip {
+      padding: 6px 14px;
+      border-radius: 999px;
+      border: 1.5px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      font: inherit;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .chip .n { color: var(--muted); font-weight: 600; margin-left: 2px; }
+    .chip.active { background: var(--ink); border-color: var(--ink); color: #fff; }
+    .chip.active .n { color: #e8dccd; }
+    .chip:disabled { opacity: 0.45; cursor: default; }
+    .chip:focus-visible { outline: 3px solid #f6b9ad; }
+
+    /* ---------- Chapters, like a cookbook ---------- */
+    .chapter { margin-top: 26px; }
+    .chapter-title {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      margin: 0 0 12px;
+      padding-bottom: 4px;
+      border-bottom: 2px dashed var(--line);
+      font-family: var(--hand);
+      font-size: 34px;
+      line-height: 1.1;
+    }
+    .chapter-title .n { font-family: var(--body); font-size: 14px; font-weight: 700; color: var(--muted); }
+
+    /* ---------- Pinterest-style board of recipe cards ---------- */
+    .board { columns: 3 190px; column-gap: 14px; }
+    .pin {
+      display: block;
+      width: 100%;
+      break-inside: avoid;
+      margin: 0 0 14px;
+      padding: 0;
+      overflow: hidden;
+      text-align: left;
+      font: inherit;
+      color: inherit;
+      background: #fff;
       border: 1px solid #efe6d8;
+      border-radius: 12px;
+      box-shadow: 0 3px 10px rgba(60, 40, 20, 0.10);
+      cursor: pointer;
+      transition: transform 0.15s, box-shadow 0.15s;
     }
-    details.recipe summary { cursor: pointer; list-style: none; position: relative; padding-right: 28px; }
-    details.recipe summary::-webkit-details-marker { display: none; }
-    details.recipe summary::after {
-      content: "+";
+    .pin:hover { transform: translateY(-3px) rotate(-0.6deg); box-shadow: 0 8px 18px rgba(60, 40, 20, 0.16); }
+    .pin:focus-visible { outline: 3px solid #f6b9ad; }
+    .pin-cover { display: block; width: 100%; aspect-ratio: 4 / 5; object-fit: cover; object-position: center 12%; }
+    .pin-cover.placeholder { display: flex; align-items: center; justify-content: center; aspect-ratio: 4 / 3; font-size: 54px; }
+    .pin-body { display: block; padding: 10px 12px 12px; }
+    .pin-title { display: block; margin: 0 0 6px; font-family: var(--hand); font-size: 25px; font-weight: 700; line-height: 1.1; }
+    .pin .badge { margin-left: 0; }
+    .pin .meta { display: block; margin-top: 4px; font-size: 12.5px; }
+
+    /* ---------- Recipe pop-up ---------- */
+    dialog#recipe-dialog {
+      width: min(680px, calc(100% - 24px));
+      max-height: calc(100% - 40px);
+      padding: 0;
+      border: 0;
+      border-radius: 14px;
+      background: var(--card);
+      color: var(--ink);
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    }
+    dialog#recipe-dialog::backdrop { background: rgba(58, 46, 40, 0.45); }
+    .dialog-inner { position: relative; padding: 26px 22px 22px; }
+    .dialog-close {
       position: absolute;
-      right: 0;
-      top: 2px;
-      font-size: 24px;
-      font-weight: 800;
-      color: var(--tomato);
+      top: 8px;
+      right: 12px;
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      font-size: 30px;
+      line-height: 1;
+      cursor: pointer;
     }
-    details.recipe[open] summary::after { content: "–"; }
+    .dialog-inner .recipe-title { display: block; padding-right: 30px; font-size: 36px; }
+    .dialog-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin: 14px 0 6px;
+      padding: 12px;
+      border: 1.5px dashed var(--line);
+      border-radius: 10px;
+      background: #fffaf0;
+    }
+    .dialog-controls > div { flex: 1 1 180px; }
+    .dialog-controls label { margin: 0 0 4px; }
     .recipe-title { font-family: var(--hand); font-size: 30px; font-weight: 700; line-height: 1.15; }
     .meta { color: var(--muted); font-size: 14px; font-weight: 600; }
     .meta a { color: var(--tomato-dark); }
@@ -327,8 +401,16 @@
       <h2><span class="step-num">2</span> Review &amp; fix</h2>
       <div id="uncertain"></div>
 
-      <label for="f-title">Title</label>
-      <input id="f-title" type="text" />
+      <div class="row">
+        <div style="flex: 2 1 260px">
+          <label for="f-title">Title</label>
+          <input id="f-title" type="text" />
+        </div>
+        <div>
+          <label for="f-chapter">Chapter</label>
+          <select id="f-chapter"></select>
+        </div>
+      </div>
 
       <div class="row">
         <div>
@@ -380,11 +462,20 @@
           <option value="favorite">♥ Favorites</option>
         </select>
       </div>
+      <div id="chips" class="chips" aria-label="Chapters"></div>
       <div id="results"></div>
     </section>
   </div>
 
   <div id="toast" role="status" aria-live="polite"></div>
+
+  <!-- Recipe pop-up: opens when you click a card on the board -->
+  <dialog id="recipe-dialog" aria-label="Recipe">
+    <div class="dialog-inner">
+      <button class="dialog-close" id="dialog-close" aria-label="Close">×</button>
+      <div id="dialog-content"></div>
+    </div>
+  </dialog>
 
   <script>
     const $ = (id) => document.getElementById(id);
@@ -489,6 +580,7 @@
 
     function fillReview(r) {
       $("f-title").value = r.title;
+      $("f-chapter").value = r.chapter || chapters[0].name;
       $("f-source-name").value = r.source_name;
       $("f-source-url").value = r.source_url;
       $("f-servings").value = r.servings;
@@ -524,6 +616,7 @@
     $("save-btn").addEventListener("click", async () => {
       const recipe = {
         title: $("f-title").value,
+        chapter: $("f-chapter").value,
         source_name: $("f-source-name").value,
         source_url: $("f-source-url").value,
         servings: $("f-servings").value,
@@ -574,49 +667,166 @@
     const statusLabel = { want_to_try: "★ Want to try", favorite: "♥ Favorite" };
     const safeLink = (url) => (/^https?:\/\//i.test(url) ? url : "");
 
+    // Chapters come from the server (server.js), so adding one there adds it here too.
+    let chapters = [];            // [{ name, emoji }]
+    let recipes = [];             // the recipes matching the current search and filter
+    let activeChapter = "all";    // which chapter chip is selected ("" = Unsorted)
+    const PLACEHOLDER_COLORS = ["var(--butter)", "var(--sky)", "var(--sage)", "#f6dcc8", "var(--pink)", "var(--mint)", "#e6dcf5"];
+
+    const chapterInfo = (name) => {
+      const i = chapters.findIndex((c) => c.name === name);
+      return i === -1
+        ? { name: "Unsorted", emoji: "📝", color: "#eee6da" }
+        : { ...chapters[i], color: PLACEHOLDER_COLORS[i % PLACEHOLDER_COLORS.length] };
+    };
+
     async function loadRecipes() {
-      const query = $("search").value.trim();
-      const params = new URLSearchParams({ q: query, status: $("status-filter").value });
+      const params = new URLSearchParams({ q: $("search").value.trim(), status: $("status-filter").value });
       const res = await fetch(`/api/recipes?${params}`);
-      const recipes = await res.json();
+      const data = await res.json();
       if (!res.ok) {
-        $("results").innerHTML = `<p class="error">${esc(recipes.error)}</p>`;
+        $("chips").innerHTML = "";
+        $("results").innerHTML = `<p class="error">${esc(data.error)}</p>`;
         return;
       }
+      recipes = data;
+      renderBoard();
+    }
+
+    function renderBoard() {
+      const query = $("search").value.trim();
+      // Group recipes by chapter, in cookbook order, with Unsorted last.
+      const groups = [...chapters.map((c) => c.name), ""]
+        .map((name) => ({ name, items: recipes.filter((r) => (r.chapter || "") === name) }));
+
+      // Chips: All, each chapter with its count, and Unsorted only if needed.
+      const chip = (value, label, n) =>
+        `<button class="chip ${activeChapter === value ? "active" : ""}" data-chapter="${esc(value)}" ${n === 0 && activeChapter !== value ? "disabled" : ""}>${label} <span class="n">${n}</span></button>`;
+      $("chips").innerHTML = chip("all", "All", recipes.length) + groups
+        .filter((g) => g.name || g.items.length)
+        .map((g) => { const info = chapterInfo(g.name); return chip(g.name, `${info.emoji} ${esc(info.name)}`, g.items.length); })
+        .join("");
+
       if (!recipes.length) {
         $("results").innerHTML = query
           ? `<p class="empty"><span class="big" aria-hidden="true">🔍</span>Nothing matches “${esc(query)}”. Try an ingredient, or a tag like “dinner”.</p>`
           : `<p class="empty"><span class="big" aria-hidden="true">📖</span>Your scrapbook is empty. Add your first recipe above!</p>`;
         return;
       }
-      const count = `<p class="count">${recipes.length} recipe${recipes.length > 1 ? "s" : ""}</p>`;
-      $("results").innerHTML = count + recipes.map((r) => {
-        const link = safeLink(r.source_url);
-        const source = r.source_name || link
-          ? `From ${esc(r.source_name)} ${link ? `(<a href="${esc(link)}" target="_blank" rel="noopener">original</a>)` : ""}`
-          : "";
-        const facts = [r.servings && `Serves ${esc(r.servings)}`, r.total_time && esc(r.total_time)].filter(Boolean).join(" · ");
-        return `<details class="recipe">
-          <summary>
-            <span class="recipe-title">${esc(r.title)}</span><span class="badge ${r.status}">${statusLabel[r.status]}</span>
-            <div class="meta">${source}</div>
-            <div class="tags">${r.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join("")}</div>
-          </summary>
-          ${facts ? `<div class="meta" style="margin-top:8px">${facts}</div>` : ""}
-          <h4>Ingredients</h4>
-          ${r.ingredient_groups.map((g) => `${g.name ? `<div class="group-name">${esc(g.name)}</div>` : ""}<ul>${g.items.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>`).join("")}
-          <h4>Steps</h4>
-          <ol>${r.steps.map((s) => `<li>${esc(s)}</li>`).join("")}</ol>
-          ${r.notes ? `<h4>Notes</h4><p>${esc(r.notes)}</p>` : ""}
-          ${r.images.length ? `<h4>Original screenshots</h4><div class="thumbs">${r.images.map((f) => `<a href="/images/${esc(f)}" target="_blank"><img src="/images/${esc(f)}" alt="Original screenshot" /></a>`).join("")}</div>` : ""}
-        </details>`;
+
+      const shown = groups.filter((g) => g.items.length && (activeChapter === "all" || g.name === activeChapter));
+      if (!shown.length) {
+        $("results").innerHTML = `<p class="empty"><span class="big" aria-hidden="true">📭</span>Nothing in this chapter matches. Try “All”.</p>`;
+        return;
+      }
+      $("results").innerHTML = shown.map((g) => {
+        const info = chapterInfo(g.name);
+        return `<div class="chapter">
+          <h3 class="chapter-title">${info.emoji} ${esc(info.name)} <span class="n">${g.items.length}</span></h3>
+          <div class="board">${g.items.map(card).join("")}</div>
+        </div>`;
       }).join("");
     }
+
+    // One card on the board. The first screenshot is the cover; otherwise a colorful chapter card.
+    function card(r) {
+      const info = chapterInfo(r.chapter);
+      const cover = r.images.length
+        ? `<img class="pin-cover" src="/images/${esc(r.images[0])}" alt="" loading="lazy" />`
+        : `<span class="pin-cover placeholder" style="background:${info.color}" aria-hidden="true">${info.emoji}</span>`;
+      return `<button class="pin" data-id="${esc(r.id)}">
+        ${cover}
+        <span class="pin-body">
+          <span class="pin-title">${esc(r.title)}</span>
+          <span class="badge ${r.status}">${statusLabel[r.status]}</span>
+          ${r.source_name ? `<span class="meta">From ${esc(r.source_name)}</span>` : ""}
+        </span>
+      </button>`;
+    }
+
+    // ---- The recipe pop-up ----
+    function openRecipe(id) {
+      const r = recipes.find((x) => x.id === id);
+      if (!r) return;
+      const link = safeLink(r.source_url);
+      const source = r.source_name || link
+        ? `From ${esc(r.source_name)} ${link ? `(<a href="${esc(link)}" target="_blank" rel="noopener">original</a>)` : ""}`
+        : "";
+      const facts = [r.servings && `Serves ${esc(r.servings)}`, r.total_time && esc(r.total_time)].filter(Boolean).join(" · ");
+      const chapterOptions = (r.chapter ? "" : `<option value="" selected>Unsorted (pick one)</option>`) +
+        chapters.map((c) => `<option value="${esc(c.name)}" ${c.name === r.chapter ? "selected" : ""}>${c.emoji} ${esc(c.name)}</option>`).join("");
+
+      $("dialog-content").innerHTML = `<div class="recipe">
+        <span class="recipe-title">${esc(r.title)}</span>
+        <div class="meta">${source}</div>
+        ${facts ? `<div class="meta">${facts}</div>` : ""}
+        <div class="tags">${r.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join("")}</div>
+        <div class="dialog-controls">
+          <div><label for="d-chapter">Chapter</label><select id="d-chapter" data-id="${esc(r.id)}">${chapterOptions}</select></div>
+          <div><label for="d-status">Saved as</label><select id="d-status" data-id="${esc(r.id)}">
+            <option value="want_to_try" ${r.status === "want_to_try" ? "selected" : ""}>★ Want to try</option>
+            <option value="favorite" ${r.status === "favorite" ? "selected" : ""}>♥ Favorite</option>
+          </select></div>
+        </div>
+        <h4>Ingredients</h4>
+        ${r.ingredient_groups.map((g) => `${g.name ? `<div class="group-name">${esc(g.name)}</div>` : ""}<ul>${g.items.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>`).join("")}
+        <h4>Steps</h4>
+        <ol>${r.steps.map((s) => `<li>${esc(s)}</li>`).join("")}</ol>
+        ${r.notes ? `<h4>Notes</h4><p>${esc(r.notes)}</p>` : ""}
+        ${r.images.length ? `<h4>Original screenshots</h4><div class="thumbs">${r.images.map((f) => `<a href="/images/${esc(f)}" target="_blank"><img src="/images/${esc(f)}" alt="Original screenshot" /></a>`).join("")}</div>` : ""}
+      </div>`;
+      if (!$("recipe-dialog").open) $("recipe-dialog").showModal();
+    }
+
+    // Save a chapter or status change from the pop-up.
+    async function updateRecipe(id, changes) {
+      try {
+        const res = await fetch(`/api/recipes/${encodeURIComponent(id)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(changes),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        await loadRecipes();
+        if (changes.chapter) showToast(`Moved to ${chapterInfo(changes.chapter).name} ${chapterInfo(changes.chapter).emoji}`);
+        if (changes.status) showToast(changes.status === "favorite" ? "Added to favorites ♥" : "Marked want to try ★");
+        if (recipes.some((r) => r.id === id)) openRecipe(id); // refresh the pop-up
+        else $("recipe-dialog").close(); // it no longer matches the current filter
+      } catch (err) {
+        showToast(`Couldn't save: ${err.message}`);
+      }
+    }
+
+    $("results").addEventListener("click", (e) => {
+      const pin = e.target.closest(".pin");
+      if (pin) openRecipe(pin.dataset.id);
+    });
+    $("chips").addEventListener("click", (e) => {
+      const chipBtn = e.target.closest(".chip");
+      if (!chipBtn || chipBtn.disabled) return;
+      activeChapter = chipBtn.dataset.chapter;
+      renderBoard();
+    });
+    $("dialog-content").addEventListener("change", (e) => {
+      if (e.target.id === "d-chapter") updateRecipe(e.target.dataset.id, { chapter: e.target.value });
+      if (e.target.id === "d-status") updateRecipe(e.target.dataset.id, { status: e.target.value });
+    });
+    $("dialog-close").addEventListener("click", () => $("recipe-dialog").close());
+    $("recipe-dialog").addEventListener("click", (e) => {
+      if (e.target === $("recipe-dialog")) $("recipe-dialog").close(); // click outside the pop-up
+    });
 
     let searchTimer;
     $("search").addEventListener("input", () => { clearTimeout(searchTimer); searchTimer = setTimeout(loadRecipes, 250); });
     $("status-filter").addEventListener("change", loadRecipes);
-    loadRecipes();
+
+    async function start() {
+      chapters = await (await fetch("/api/chapters")).json();
+      $("f-chapter").innerHTML = chapters.map((c) => `<option value="${esc(c.name)}">${c.emoji} ${esc(c.name)}</option>`).join("");
+      loadRecipes();
+    }
+    start();
   </script>
 </body>
 </html>
