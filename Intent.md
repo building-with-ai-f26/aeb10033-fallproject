@@ -22,7 +22,7 @@ Use this as a scratchpad if helpful. Publish the required PRD and Build 1 log on
 
 ## 3. What is in and out of scope?
 
-- **One core workflow:** Upload one or more images (or paste a link or text) → AI extracts the recipe → I review and fix it → save it as "want to try" or "favorite" with its source attached → search by keyword or description and cook from it. I'll start on my laptop because the app runs locally through Week 4, even though I'd normally do this from my phone.
+- **One core workflow:** Upload one or more images (or paste a link or text) → AI extracts the recipe → I review and fix it → save it as "want to try" or "favorite" with its source attached → browse it by cookbook chapter (like Dinners or Desserts) or search by keyword or description, and cook from it. I'll start on my laptop because the app runs locally through Week 4, even though I'd normally do this from my phone.
 *You have six weeks. List the features, integrations, and polish you are deliberately NOT building.*
 
 - [ ] Not building: Meal planning
