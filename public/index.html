@@ -174,6 +174,17 @@
     .thumbs img:nth-child(even) { transform: rotate(2.5deg); }
     .thumbs a { display: inline-block; }
 
+    /* ---------- Cover photo from a recipe website ---------- */
+    .photo-pick { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 10px; }
+    .photo-pick img {
+      width: 140px; aspect-ratio: 4 / 5; object-fit: cover;
+      background: #fff; padding: 6px 6px 20px; border-radius: 3px;
+      box-shadow: 0 4px 12px rgba(60, 40, 20, 0.18); transform: rotate(-2deg);
+    }
+    .photo-pick label { display: flex; align-items: center; gap: 8px; margin: 0; cursor: pointer; }
+    .photo-pick input { width: 18px; height: 18px; accent-color: var(--tomato); }
+    .recipe-photo { display: block; width: 100%; max-height: 320px; object-fit: cover; border-radius: 10px; margin-bottom: 14px; }
+
     /* ---------- Status messages ---------- */
     .status-msg { margin-top: 14px; color: var(--muted); font-size: 14px; font-weight: 600; }
     .error { color: #b42318; }
@@ -402,6 +413,12 @@
       <h2><span class="step-num">2</span> Review &amp; fix</h2>
       <div id="uncertain"></div>
 
+      <!-- Only shown when the recipe came from a website that has a photo -->
+      <div id="photo-pick" class="photo-pick" hidden>
+        <img id="photo-preview" alt="Photo from the recipe's website" />
+        <label><input type="checkbox" id="use-photo" checked /> Use the website's photo as the cover</label>
+      </div>
+
       <div class="row">
         <div style="flex: 2 1 260px">
           <label for="f-title">Title</label>
@@ -589,6 +606,7 @@
         const data = await res.json();
         if (!res.ok) throw new Error(data.error);
         fillReview(data.recipe);
+        showPhotoChoice(data.photo_url);
         const u = data.usage;
         $("extract-status").textContent =
           `Done! Cost: $${u.cost_usd != null ? u.cost_usd.toFixed(4) : "unknown"} (${u.input_tokens} in / ${u.output_tokens} out tokens, ${u.model})`;
@@ -624,6 +642,18 @@
       $("review").scrollIntoView({ behavior: "smooth" });
     }
 
+    // The recipe website's photo. It's only previewed here; the server downloads it when you save.
+    let photoUrl = "";
+    function showPhotoChoice(url) {
+      photoUrl = url || "";
+      $("use-photo").checked = true;
+      $("photo-pick").hidden = !photoUrl;
+      if (photoUrl) $("photo-preview").src = photoUrl;
+      else $("photo-preview").removeAttribute("src");
+    }
+    // Some sites won't show their photos on other pages. The server can usually still download it, so keep the choice.
+    $("photo-preview").addEventListener("error", () => { $("photo-preview").removeAttribute("src"); });
+
     // Turn the ingredients box back into groups: "# Name" starts a new section.
     function parseIngredients(text) {
       const groups = [{ name: "", items: [] }];
@@ -654,7 +684,7 @@
         const res = await fetch("/api/recipes", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ recipe, images }),
+          body: JSON.stringify({ recipe, images, photo_url: $("use-photo").checked ? photoUrl : "" }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error);
@@ -682,6 +712,7 @@
       $("link").value = "";
       $("pasted").value = "";
       $("thumbs").innerHTML = "";
+      showPhotoChoice("");
       $("review").hidden = true;
     }
 
@@ -750,11 +781,12 @@
       }).join("");
     }
 
-    // One card on the board. The first screenshot is the cover; otherwise a colorful chapter card.
+    // One card on the board. The cover is the website's photo, else the first screenshot, else a colorful chapter card.
     function card(r) {
       const info = chapterInfo(r.chapter);
-      const cover = r.images.length
-        ? `<img class="pin-cover" src="/images/${esc(r.images[0])}" alt="" loading="lazy" />`
+      const coverFile = r.cover || r.images[0];
+      const cover = coverFile
+        ? `<img class="pin-cover" src="/images/${esc(coverFile)}" alt="" loading="lazy" />`
         : `<span class="pin-cover placeholder" style="background:${info.color}" aria-hidden="true">${info.emoji}</span>`;
       return `<button class="pin" data-id="${esc(r.id)}">
         ${cover}
@@ -778,6 +810,7 @@
       const chapterOptions = (r.chapter ? "" : `<option value="" selected>Unsorted (pick one)</option>`) + chapterOptionsHtml(r.chapter);
 
       $("dialog-content").innerHTML = `<div class="recipe">
+        ${r.cover ? `<img class="recipe-photo" src="/images/${esc(r.cover)}" alt="" />` : ""}
         <span class="recipe-title">${esc(r.title)}</span>
         <div class="meta">${source}</div>
         ${facts ? `<div class="meta">${facts}</div>` : ""}

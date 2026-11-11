@@ -199,11 +199,7 @@ function findStructuredRecipe(html) {
       continue; // some sites have broken blocks; skip them
     }
     const recipe = findRecipeObject(data);
-    if (recipe) {
-      const keep = ["name", "author", "description", "recipeYield", "prepTime", "cookTime", "totalTime",
-        "recipeIngredient", "recipeInstructions", "recipeCategory", "recipeCuisine", "keywords"];
-      return Object.fromEntries(keep.filter((k) => recipe[k] !== undefined).map((k) => [k, recipe[k]]));
-    }
+    if (recipe) return recipe;
   }
   return null;
 }
@@ -242,16 +238,96 @@ function pageText(html) {
     .slice(0, 40000); // about 10,000 tokens, roughly $0.001
 }
 
+// Returns the text to send to the AI, plus the web address of the recipe's photo (if the page has one).
 async function readRecipeLink(link) {
   const html = await fetchPage(link);
   const site = new URL(link).hostname.replace(/^www\./, "");
   const structured = findStructuredRecipe(html);
+  const photoUrl = findPhotoUrl(html, structured, link);
   if (structured) {
-    console.log(`[link] ${site}: found the recipe's structured data`);
-    return `Recipe from the website ${site} (structured recipe data from the page; times may be written like PT1H30M, which means 1 hr 30 min):\n\n${JSON.stringify(structured, null, 1)}`;
+    console.log(`[link] ${site}: found the recipe's structured data${photoUrl ? " and a photo" : ""}`);
+    const keep = ["name", "author", "description", "recipeYield", "prepTime", "cookTime", "totalTime",
+      "recipeIngredient", "recipeInstructions", "recipeCategory", "recipeCuisine", "keywords"];
+    const trimmed = Object.fromEntries(keep.filter((k) => structured[k] !== undefined).map((k) => [k, structured[k]]));
+    return {
+      text: `Recipe from the website ${site} (structured recipe data from the page; times may be written like PT1H30M, which means 1 hr 30 min):\n\n${JSON.stringify(trimmed, null, 1)}`,
+      photoUrl,
+    };
   }
-  console.log(`[link] ${site}: no structured data, using the page text`);
-  return `Text of a recipe web page from ${site} (ignore menus, ads, comments, and the story before the recipe):\n\n${pageText(html)}`;
+  console.log(`[link] ${site}: no structured data, using the page text${photoUrl ? " (found a photo)" : ""}`);
+  return {
+    text: `Text of a recipe web page from ${site} (ignore menus, ads, comments, and the story before the recipe):\n\n${pageText(html)}`,
+    photoUrl,
+  };
+}
+
+// ---- Cover photos from recipe websites ----
+// The recipe's own photo is usually in its structured data ("image"). If not, most pages
+// name a preview photo for social media sharing: <meta property="og:image" content="...">.
+function findPhotoUrl(html, structured, pageLink) {
+  let candidate = firstImageUrl(structured?.image);
+  if (!candidate) {
+    for (const [tag] of html.matchAll(/<meta\b[^>]*>/gi)) {
+      if (/(property|name)=["'](og:image|og:image:url|twitter:image)["']/i.test(tag)) {
+        candidate = (tag.match(/content=["']([^"']+)["']/i)?.[1] || "").replace(/&amp;/g, "&");
+        if (candidate) break;
+      }
+    }
+  }
+  if (!candidate) return "";
+  try {
+    const url = new URL(candidate, pageLink); // some pages use a path like /photo.jpg
+    return url.protocol === "https:" || url.protocol === "http:" ? url.href : "";
+  } catch {
+    return "";
+  }
+}
+
+// "image" can be a link, a list of links, or an object (or list of objects) with a "url".
+function firstImageUrl(image) {
+  if (!image) return "";
+  if (typeof image === "string") return image;
+  if (Array.isArray(image)) return firstImageUrl(image[0]);
+  return typeof image.url === "string" ? image.url : "";
+}
+
+const PHOTO_TYPES = { "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif", "image/avif": ".avif" };
+const MAX_PHOTO_BYTES = 10 * 1024 * 1024;
+
+// Download a recipe photo into data/images and return its file name, or "" if that didn't work.
+// A missing photo never stops a recipe from saving; the card just keeps its emoji cover.
+async function downloadPhoto(photoUrl, recipeId) {
+  try {
+    const url = new URL(photoUrl);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return "";
+    const res = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36" },
+      redirect: "follow",
+      signal: AbortSignal.timeout(15000),
+    });
+    const ext = PHOTO_TYPES[(res.headers.get("content-type") || "").split(";")[0].trim()];
+    if (!res.ok || !ext) {
+      console.log(`[photo] skipped ${url.hostname} (status ${res.status}, type ${res.headers.get("content-type")})`);
+      return "";
+    }
+    const chunks = [];
+    let size = 0;
+    for await (const chunk of res.body) {
+      size += chunk.length;
+      if (size > MAX_PHOTO_BYTES) {
+        console.log(`[photo] skipped ${url.hostname} (larger than 10 MB)`);
+        return "";
+      }
+      chunks.push(chunk);
+    }
+    const name = `${recipeId}-cover${ext}`;
+    fs.writeFileSync(path.join(IMAGE_DIR, name), Buffer.concat(chunks));
+    console.log(`[photo] saved ${name} (${Math.round(size / 1024)} KB)`);
+    return name;
+  } catch (err) {
+    console.log(`[photo] couldn't download the photo: ${err.message}`);
+    return "";
+  }
 }
 
 async function extractRecipe({ images, text, model }) {
@@ -373,7 +449,8 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname.startsWith("/images/")) {
       const file = path.join(IMAGE_DIR, path.basename(url.pathname));
       if (!fs.existsSync(file)) return sendJson(res, 404, { error: "Not found" });
-      res.writeHead(200, { "Content-Type": "image/jpeg" });
+      const type = Object.keys(PHOTO_TYPES).find((t) => PHOTO_TYPES[t] === path.extname(file)) || "image/jpeg";
+      res.writeHead(200, { "Content-Type": type });
       return fs.createReadStream(file).pipe(res);
     }
 
@@ -388,9 +465,12 @@ const server = http.createServer(async (req, res) => {
       }
 
       const parts = [];
+      let photoUrl = "";
       if (recipeLink) {
         try {
-          parts.push(await readRecipeLink(recipeLink));
+          const page = await readRecipeLink(recipeLink);
+          parts.push(page.text);
+          photoUrl = page.photoUrl;
         } catch (err) {
           // If the site blocks us but you also gave screenshots or text, use those and keep the link as the source.
           if (!(err instanceof UserError) || (!pasted && !images.length)) throw err;
@@ -400,7 +480,7 @@ const server = http.createServer(async (req, res) => {
       if (pasted) parts.push(`Recipe text pasted by the user:\n\n${pasted}`);
       const result = await extractRecipe({ images, text: parts.join("\n\n---\n\n"), model: model || MODEL });
       if (recipeLink) result.recipe.source_url = recipeLink; // the link you pasted is the source
-      return sendJson(res, 200, result);
+      return sendJson(res, 200, { ...result, photo_url: photoUrl }); // the photo is downloaded only if you save
     }
 
     // List and search saved recipes
@@ -415,7 +495,7 @@ const server = http.createServer(async (req, res) => {
 
     // Save a reviewed recipe and its original screenshots
     if (req.method === "POST" && url.pathname === "/api/recipes") {
-      const { recipe = {}, images = [] } = await readJson(req);
+      const { recipe = {}, images = [], photo_url = "" } = await readJson(req);
       const clean = cleanRecipe(recipe);
       if (!clean.title) return sendJson(res, 400, { error: "A recipe needs a title." });
       if (!images.every(isJpegDataUrl)) return sendJson(res, 400, { error: "Images must be JPEG data URLs." });
@@ -432,12 +512,13 @@ const server = http.createServer(async (req, res) => {
         ...clean,
         status: STATUSES.includes(recipe.status) ? recipe.status : "want_to_try",
         images: imageFiles,
+        cover: photo_url ? await downloadPhoto(String(photo_url), id) : "", // the website's photo, if any
         created_at: new Date().toISOString(),
       };
       const all = loadRecipes();
       all.push(saved);
       saveRecipes(all);
-      console.log(`[save] "${saved.title}" (${saved.status}, ${imageFiles.length} image(s))`);
+      console.log(`[save] "${saved.title}" (${saved.status}, ${imageFiles.length} image(s)${saved.cover ? ", cover photo" : ""})`);
       return sendJson(res, 201, saved);
     }
 
@@ -463,21 +544,34 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 201, allChapters().map(({ name: n, emoji: e }) => ({ name: n, emoji: e })));
     }
 
-    // Move a saved recipe to another chapter, or switch "want to try" / "favorite"
+    // Move a saved recipe to another chapter, switch "want to try" / "favorite", or set a cover photo from a web address
     const recipeRoute = url.pathname.match(/^\/api\/recipes\/([\w-]+)$/);
     if (req.method === "PATCH" && recipeRoute) {
-      const { chapter, status } = await readJson(req);
+      const { chapter, status, photo_url } = await readJson(req);
       if (chapter !== undefined && !chapterNames().includes(chapter)) return sendJson(res, 400, { error: "Unknown chapter." });
       if (status !== undefined && !STATUSES.includes(status)) return sendJson(res, 400, { error: "Unknown status." });
 
-      const all = loadRecipes();
-      const recipe = all.find((r) => r.id === recipeRoute[1]);
+      const recipe = loadRecipes().find((r) => r.id === recipeRoute[1]);
       if (!recipe) return sendJson(res, 404, { error: "Recipe not found." });
-      if (chapter !== undefined) recipe.chapter = chapter;
-      if (status !== undefined) recipe.status = status;
+      let cover;
+      if (photo_url !== undefined) {
+        cover = await downloadPhoto(String(photo_url), recipe.id);
+        if (!cover) return sendJson(res, 400, { error: "Couldn't download that photo." });
+      }
+
+      // Re-read after the download, so a save made in the meantime isn't lost.
+      const all = loadRecipes();
+      const current = all.find((r) => r.id === recipe.id);
+      if (!current) return sendJson(res, 404, { error: "Recipe not found." });
+      if (chapter !== undefined) current.chapter = chapter;
+      if (status !== undefined) current.status = status;
+      if (cover) {
+        if (current.cover && current.cover !== cover) fs.rmSync(path.join(IMAGE_DIR, current.cover), { force: true });
+        current.cover = cover;
+      }
       saveRecipes(all);
-      console.log(`[update] "${recipe.title}" -> ${recipe.chapter || "Unsorted"}, ${recipe.status}`);
-      return sendJson(res, 200, recipe);
+      console.log(`[update] "${current.title}" -> ${current.chapter || "Unsorted"}, ${current.status}${cover ? ", new cover photo" : ""}`);
+      return sendJson(res, 200, current);
     }
 
     sendJson(res, 404, { error: "Not found" });
