@@ -186,8 +186,9 @@
     }
     .cover-preview .placeholder { background: var(--butter); }
     .recipe-photo { display: block; width: 100%; max-height: 320px; object-fit: cover; border-radius: 10px; margin-bottom: 14px; }
-    .shot { position: relative; display: inline-block; }
-    .shot-actions { position: absolute; top: -8px; right: -8px; display: flex; gap: 4px; align-items: center; }
+    /* Each photo with its buttons in a row underneath, so they never cover the photo or each other */
+    .shot { display: inline-flex; flex-direction: column; align-items: center; gap: 10px; }
+    .shot-actions { display: flex; gap: 6px; align-items: center; justify-content: center; flex-wrap: wrap; }
     .mini {
       width: 30px; height: 30px; border-radius: 50%; border: 1.5px solid var(--line);
       background: #fff; color: var(--ink); font: inherit; font-weight: 800; cursor: pointer;
