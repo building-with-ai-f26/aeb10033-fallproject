@@ -5,9 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Scrapbook Kitchen · Building with AI (Fall 2026)</title>
 
-  <!-- Week 1: create your PostHog account only.
-       Build 2: paste your project's current PostHog web snippet here,
-       then install analytics in the local app and verify events. -->
+  <!-- PostHog analytics: pageviews, clicks, and session replay.
+       This project key (phc_...) is public by design: it can only send events, not read data. -->
+  <script>
+    !function(t,e){var o,n,p,r;e.__SV||(window.posthog&&window.posthog.__loaded)||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host.replace(".i.posthog.com","-assets.i.posthog.com")+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+".people (stub)"},o="init capture register register_once register_for_session unregister unregister_for_session getFeatureFlag getFeatureFlagPayload isFeatureEnabled reloadFeatureFlags on onFeatureFlags onSessionId identify setPersonProperties group resetGroups reset get_distinct_id get_session_id get_session_replay_url alias set_config startSessionRecording stopSessionRecording sessionRecordingStarted captureException opt_in_capturing opt_out_capturing has_opted_in_capturing has_opted_out_capturing debug".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
+    posthog.init("phc_BNkFKorbZZ8Mm9a8spChyvvDoVUb3eXsu6WeFFYEbxWY", {
+      api_host: "https://us.i.posthog.com",
+      person_profiles: "identified_only",
+    });
+    posthog.register({ app: "product_page" });
+  </script>
 
   <style>
     :root {
@@ -165,13 +172,19 @@
     <section id="live-demo">
       <h2>Product Showcase (Prototype / Live App / 2-Min Video)</h2>
       <p>
-        <strong>Current Status:</strong> Build 1: local prototype (runs on my laptop)<br />
-        <strong>Demo:</strong> Screenshots of the local prototype below. The live cloud app link comes in Build 5.
+        <strong>Current Status:</strong> Build 2: smallest working version (runs on my laptop, with real AI calls)<br />
+        <strong>Demo:</strong> Screenshots of the Build 2 app running on my laptop. The live cloud app link comes in Build 5.
       </p>
-      <img class="showcase-img" src="prototype.png" alt="Scrapbook Kitchen prototype: the Add a recipe form with a screenshot upload and paste box, above the My recipes list with search" />
-      <p class="meta">Add a recipe from screenshots or pasted text, then find it later in My recipes.</p>
-      <img class="showcase-img" src="prototype2.png" alt="A saved recipe opened in Scrapbook Kitchen: Chef John's Buttermilk Biscuits with source, tags, ingredients, and steps" />
-      <p class="meta">A saved recipe after AI extraction and my review, with its source, tags, ingredients, and steps.</p>
+      <img class="showcase-img" src="build2abovethefold.png" alt="Scrapbook Kitchen's Add a recipe step: a drop zone for screenshots, a box for a recipe link, and a box for pasted recipe text" />
+      <p class="meta">1. Add a recipe from screenshots, a website link, or pasted text. AI reads it into a draft I review before saving.</p>
+      <img class="showcase-img" src="build2recipelist.png" alt="My recipes board with a search box, a want-to-try or favorite filter, chapter chips with counts, and a Breakfast chapter showing a Baked Apple Donuts photo card" />
+      <p class="meta">2. Saved recipes sit on a board, grouped into chapters like Breakfast, Dinners, and Desserts, with a photo on each card.</p>
+      <img class="showcase-img" src="build2search.png" alt="Searching for pita chips finds one recipe, Fattoush Salad, in the Sides chapter" />
+      <p class="meta">3. Search looks through titles, ingredients, and tags: "pita chips" finds the Fattoush Salad.</p>
+      <img class="showcase-img" src="build2recipepage.png" alt="An opened recipe, Fresh Fruit Tart, with its cover photo, source link, servings and time, tags, and chapter and saved-as menus" />
+      <p class="meta">4. Opening a recipe shows its photo, source, tags, ingredients, and steps. I can move it to another chapter or mark it a favorite.</p>
+      <img class="showcase-img" src="build2recipepageimages.png" alt="The bottom of a recipe: notes, then a Photos row where a star picks the cover, scissors crop it, and an X removes a photo, with Add photos, No cover, and Done buttons" />
+      <p class="meta">5. Each recipe's photos: pick the board cover, crop it, add or remove photos, then press Done.</p>
     </section>
 
     <!-- LIVING PRD (Updated every week!) -->
@@ -194,22 +207,32 @@
       </ul>
 
       <h3>3. How It Works Under the Hood & Riskiest Assumption (Week 2+)</h3>
-      <p><strong>Riskiest Assumption:</strong> [What is the #1 technical or user risk that could sink this product?]</p>
-      <p><strong>Simple Architecture:</strong> [User Input] → [Your App / Server] → [AI Model / Tool] → [Output]</p>
+      <p><strong>Riskiest Assumption:</strong> The AI misreads or invents part of a recipe from a messy source (handwriting, 3–5 overlapping screenshots, or an ad-filled web page), and I don't catch it before I cook. A wrong amount of flour or a missing step ruins the dish and my trust in the app.</p>
+      <p><strong>How this build tests it:</strong> I run the full workflow on my own real, messy recipes: a handwritten family card, a social media caption split across screenshots, ad-heavy recipe websites, and pasted text from sites that block apps. The AI is told to copy exactly and never guess silently. Anything it's unsure of goes on a "Double-check these" list, and every recipe goes through a review step where I fix it before saving. In Build 1, it got every ingredient and step right on the three recipes I checked line by line. Build 4 will measure this more formally.</p>
+      <p><strong>Simple Architecture:</strong> [Screenshots, a link, or pasted text in my browser] → [My local Node.js server] → [OpenRouter → Claude Haiku 5.5] → [A structured recipe I review, then save]</p>
+      <ul>
+        <li><strong>The page</strong> (<code>public/index.html</code>, plain HTML and JavaScript): shrinks screenshots before upload, shows the draft recipe for review, and shows saved recipes as a cookbook board with chapters, cover photos, and search.</li>
+        <li><strong>The server</strong> (<code>server.js</code>, Node.js with no installed packages): for a link, it downloads the page and uses the recipe data the website includes for search engines, or the page's text. It sends the screenshots or text to the AI with instructions and a fixed recipe format, then saves what I approve.</li>
+        <li><strong>The AI</strong> (Claude Haiku 5.5 through OpenRouter): returns the title, ingredients, steps, source, tags, chapter, and a list of anything it's unsure of. The API key stays in a private <code>.env</code> file and never goes to GitHub.</li>
+        <li><strong>Storage:</strong> recipes in <code>data/recipes.json</code>, and photos and screenshots in <code>data/images/</code>, on my laptop only.</li>
+        <li><strong>Analytics:</strong> PostHog on this page and in the local app records pageviews, clicks, session replays (anything typed is hidden), and three events: recipe read, recipe saved, and search. They include counts, never recipe text.</li>
+      </ul>
 
       <h3>4. Unit Economics & Analytics Snapshot (Updated Weekly)</h3>
       <div class="grid-2">
         <div class="stat-box">
           <div class="stat-label">Cumulative Build Spend</div>
-          <div class="stat-value">$5.04</div>
+          <div class="stat-value">$10.08</div>
         </div>
         <div class="stat-box">
           <div class="stat-label">Est. Cost Per User Run</div>
           <div class="stat-value">~$0.002 per recipe</div>
+          <div class="meta">Claude Haiku 5.5. Searching and browsing cost nothing.</div>
         </div>
         <div class="stat-box">
           <div class="stat-label">User Evidence (Analytics from Build 2)</div>
-          <div class="stat-value">[Not yet measured]</div>
+          <div class="stat-value">PostHog live (Nov 12)</div>
+          <div class="meta">First pod testing on Nov 17</div>
         </div>
         <div class="stat-box">
           <div class="stat-label">Sponsor Call (Week 6)</div>
@@ -236,9 +259,17 @@
       <div class="log-entry">
         <h3>Build 2 · Smallest Local Version & PostHog (Due Nov 16)</h3>
         <ul>
-          <li><strong>What shipped:</strong> [Local working slice, PostHog verified on this page and the local app, PRD v2, and local setup in AGENTS.md]</li>
-          <li><strong>What broke / changed in PRD:</strong> [Fill in]</li>
-          <li><strong>Cost & time this week:</strong> $[0.00] · [0] hours</li>
+          <li><strong>What shipped:</strong> The full workflow works locally with real AI calls: add a recipe from screenshots, pasted text, or a recipe website link, review it, and save it. Since Build 1, I added:
+            <ul>
+              <li>reading recipes from a website link, with a paste-the-text fallback;</li>
+              <li>a scrapbook-style redesign;</li>
+              <li>a Pinterest-style board grouped into cookbook chapters (from pod feedback), plus chapters I create myself, like Kids Sensory Activities;</li>
+              <li>the website's photo as the card cover, and adding, removing, choosing, and cropping my own photos;</li>
+              <li>PostHog on this page and in the local app, PRD v2, and setup steps and project structure in <code>AGENTS.md</code>.</li>
+            </ul>
+            Four pull requests (#6–#9), with commits on Nov 11 and Nov 12. A podmate reviewed and signed off on #7.</li>
+          <li><strong>What broke / changed in PRD:</strong> Most recipe websites block apps from reading them (7 of the 11 I tried), so pasting the recipe text along with the link is now part of the workflow. Only some recipes get the website's photo for the same reason. After testing, "Change cover" and "Add screenshots" felt like the same button, so I merged them into one row of photos. Search still needs work: "bread" also finds "breadcrumbs," and "quick dinner" finds nothing because few recipes list a time. That's next. The PRD now says I can browse by cookbook chapter, not just search.</li>
+          <li><strong>Cost & time this week:</strong> $5.04 ($5 Claude Code, my share of a $20/month Pro plan, + $0.04 OpenRouter) · 2 hours</li>
         </ul>
       </div>
 

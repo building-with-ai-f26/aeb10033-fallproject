@@ -6,10 +6,32 @@
 - **What this repo builds:** Scrapbook Kitchen, a personal recipe saver. You upload screenshots or photos of a recipe (social media posts, websites, cookbooks, handwritten cards) or paste text; AI turns them into a clean recipe you review, save as "want to try" or "favorite," and search later.
 - **Primary user & core workflow:** See the living PRD in `docs/index.html`.
 - **Tech stack:** Node.js 22+ using only built-in modules (no npm packages) / one HTML page with plain JavaScript / OpenRouter API (default model `anthropic/claude-haiku-5.5`) / recipes stored in `data/recipes.json` and screenshots in `data/images/` (both git-ignored).
-- **Main files:** `server.js` (server, AI prompt, save, search) and `public/index.html` (the page).
+- **Main files:** `server.js` (server, AI prompt, link reading, save, search, photos) and `public/index.html` (the page).
+
+### Project structure
+```
+server.js            Node server: routes, AI prompt + recipe format, link reading, search, photo files
+public/index.html    The whole app page (HTML, CSS, plain JavaScript), including PostHog analytics
+docs/index.html      Product Page on GitHub Pages: PRD, build log, PostHog snippet
+docs/*.png           Screenshots shown on the Product Page
+tests/               Verification notes (automated tests go here)
+data/                Private, git-ignored, created on first run:
+  recipes.json         saved recipes
+  chapters.json        chapters you added (built-in chapters live in server.js)
+  images/              screenshots, website photos, uploaded photos, and cropped covers
+.env                 Private keys (git-ignored); copy from .env.example
+```
+
+### Main API routes (all in `server.js`)
+- `POST /api/extract`: screenshots, text, or a link → AI → draft recipe (nothing saved yet)
+- `GET/POST /api/recipes`: list and search, or save a reviewed recipe
+- `PATCH /api/recipes/:id`: change chapter or status
+- `PUT/DELETE /api/recipes/:id/cover`, `POST /api/recipes/:id/screenshots`, `DELETE /api/recipes/:id/screenshots/:file`: photos and covers
+- `GET/POST /api/chapters`: list or add chapters
 
 ## 2. Commands
-- **Install dependencies:** None. Needs Node.js 22+ and a `.env` file copied from `.env.example` with a real `OPENROUTER_API_KEY`.
+- **Install dependencies:** None. Needs Node.js 22+.
+- **Set up keys:** `cp .env.example .env`, then add a real `OPENROUTER_API_KEY`. Optional: `POSTHOG_KEY` (the public `phc_` project key) turns on analytics in the local app.
 - **Run locally:** `node server.js`, then open http://localhost:3000
 - **Run deterministic tests:** None yet.
 - **Run model evals:** None yet (Build 4).

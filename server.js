@@ -17,6 +17,9 @@ const API_KEY = process.env.OPENROUTER_API_KEY;
 const MODEL = process.env.OPENROUTER_MODEL || "anthropic/claude-haiku-5.5";
 const PORT = Number(process.env.PORT) || 3000;
 const MAX_UPLOAD_BYTES = 40 * 1024 * 1024; // 40 MB, plenty for ~10 resized screenshots
+// Optional analytics. The PostHog project key (phc_...) is public, but it lives in .env so it's set in one place.
+const POSTHOG_KEY = process.env.POSTHOG_KEY || "";
+const POSTHOG_HOST = process.env.POSTHOG_HOST || "https://us.i.posthog.com";
 
 if (!API_KEY || API_KEY.includes("replace-with-your-key")) {
   console.error("Missing OPENROUTER_API_KEY. Copy .env.example to .env and add your OpenRouter key.");
@@ -468,10 +471,13 @@ function changeRecipe(id, change) {
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   try {
-    // The page itself
+    // The page itself, with the PostHog key and host from .env filled in
     if (req.method === "GET" && url.pathname === "/") {
+      const page = fs.readFileSync(path.join(__dirname, "public", "index.html"), "utf8")
+        .replace('"__POSTHOG_KEY__"', JSON.stringify(POSTHOG_KEY))
+        .replace('"__POSTHOG_HOST__"', JSON.stringify(POSTHOG_HOST));
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-      return fs.createReadStream(path.join(__dirname, "public", "index.html")).pipe(res);
+      return res.end(page);
     }
 
     // Saved original screenshots (basename() stops paths like ../../.env)
@@ -683,5 +689,5 @@ const server = http.createServer(async (req, res) => {
 
 // 127.0.0.1 = only this computer can open the app
 server.listen(PORT, "127.0.0.1", () => {
-  console.log(`Scrapbook Kitchen running at http://localhost:${PORT} (model: ${MODEL})`);
+  console.log(`Scrapbook Kitchen running at http://localhost:${PORT} (model: ${MODEL}, analytics: ${POSTHOG_KEY ? "on" : "off"})`);
 });
