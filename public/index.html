@@ -174,16 +174,27 @@
     .thumbs img:nth-child(even) { transform: rotate(2.5deg); }
     .thumbs a { display: inline-block; }
 
-    /* ---------- Cover photo from a recipe website ---------- */
-    .photo-pick { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 10px; }
-    .photo-pick img {
-      width: 140px; aspect-ratio: 4 / 5; object-fit: cover;
+    /* ---------- Cover photo and screenshots ---------- */
+    .btn.small { margin: 8px 6px 0 0; padding: 8px 14px; font-size: 14px; }
+    .cover-pick { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+    .cover-pick .meta { margin: 0; }
+    .cover-preview img, .cover-preview .placeholder {
+      display: flex; align-items: center; justify-content: center;
+      width: 120px; aspect-ratio: 4 / 5; object-fit: cover; font-size: 44px;
       background: #fff; padding: 6px 6px 20px; border-radius: 3px;
       box-shadow: 0 4px 12px rgba(60, 40, 20, 0.18); transform: rotate(-2deg);
     }
-    .photo-pick label { display: flex; align-items: center; gap: 8px; margin: 0; cursor: pointer; }
-    .photo-pick input { width: 18px; height: 18px; accent-color: var(--tomato); }
+    .cover-preview .placeholder { background: var(--butter); }
     .recipe-photo { display: block; width: 100%; max-height: 320px; object-fit: cover; border-radius: 10px; margin-bottom: 14px; }
+    .shot { position: relative; display: inline-block; }
+    .shot-actions { position: absolute; top: -8px; right: -8px; display: flex; gap: 4px; align-items: center; }
+    .mini {
+      width: 30px; height: 30px; border-radius: 50%; border: 1.5px solid var(--line);
+      background: #fff; color: var(--ink); font: inherit; font-weight: 800; cursor: pointer;
+      box-shadow: 0 2px 5px rgba(60, 40, 20, 0.18);
+    }
+    .mini:hover { background: var(--butter); }
+    .shot-badge { background: var(--butter); border-radius: 999px; padding: 3px 9px; font-size: 12px; font-weight: 800; box-shadow: 0 2px 5px rgba(60, 40, 20, 0.18); }
 
     /* ---------- Status messages ---------- */
     .status-msg { margin-top: 14px; color: var(--muted); font-size: 14px; font-weight: 600; }
@@ -293,7 +304,26 @@
       color: var(--ink);
       box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
     }
-    dialog#recipe-dialog::backdrop, dialog#chapter-dialog::backdrop { background: rgba(58, 46, 40, 0.45); }
+    dialog#recipe-dialog::backdrop, dialog#chapter-dialog::backdrop, dialog#crop-dialog::backdrop { background: rgba(58, 46, 40, 0.45); }
+
+    /* ---------- Crop window: a card-shaped frame you drag the photo around in ---------- */
+    dialog#crop-dialog {
+      width: min(380px, calc(100% - 24px)); max-height: calc(100% - 40px); padding: 0; border: 0; border-radius: 14px;
+      background: var(--card); color: var(--ink); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    }
+    .crop-frame {
+      position: relative; width: 280px; max-width: 100%; aspect-ratio: 4 / 5; margin: 12px auto 0;
+      overflow: hidden; border-radius: 10px; background: #2a2420;
+      cursor: grab; touch-action: none; user-select: none;
+    }
+    .crop-frame:active { cursor: grabbing; }
+    .crop-frame:focus-visible { outline: 3px solid #f6b9ad; }
+    .crop-frame img { position: absolute; top: 0; left: 0; max-width: none; transform-origin: 0 0; pointer-events: none; }
+    .dialog-done { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 22px; padding-top: 4px; border-top: 2px dashed var(--line); }
+    .dialog-done .btn { margin-top: 14px; }
+    .dialog-done .meta { margin-top: 14px; }
+    .crop-zoom { display: flex; align-items: center; gap: 10px; margin: 14px 0 0; font-weight: 700; }
+    .crop-zoom input { flex: 1; accent-color: var(--tomato); }
     dialog#chapter-dialog { width: min(440px, calc(100% - 24px)); }
     .dialog-inner { position: relative; padding: 26px 22px 22px; }
     .dialog-close {
@@ -413,10 +443,17 @@
       <h2><span class="step-num">2</span> Review &amp; fix</h2>
       <div id="uncertain"></div>
 
-      <!-- Only shown when the recipe came from a website that has a photo -->
-      <div id="photo-pick" class="photo-pick" hidden>
-        <img id="photo-preview" alt="Photo from the recipe's website" />
-        <label><input type="checkbox" id="use-photo" checked /> Use the website's photo as the cover</label>
+      <!-- The picture on this recipe's board card -->
+      <label>Cover photo</label>
+      <div class="cover-pick">
+        <span id="cover-preview" class="cover-preview"></span>
+        <div>
+          <p id="cover-label" class="meta"></p>
+          <label class="btn secondary small" for="cover-file">📷 Choose a photo…</label>
+          <input id="cover-file" class="visually-hidden" type="file" accept="image/*" />
+          <button type="button" id="cover-none" class="btn secondary small">No cover</button>
+          <button type="button" id="cover-default" class="btn secondary small" hidden></button>
+        </div>
       </div>
 
       <div class="row">
@@ -508,6 +545,20 @@
     </form>
   </dialog>
 
+  <!-- Crop window: opens from ✂️ on a recipe's photo -->
+  <dialog id="crop-dialog" aria-label="Crop the cover">
+    <div class="dialog-inner">
+      <span class="recipe-title" style="font-size: 30px">✂️ Crop the cover</span>
+      <p class="meta" style="margin: 4px 0 0">Drag the photo to move it, and zoom to get closer. The frame is the shape of a board card.</p>
+      <div id="crop-frame" class="crop-frame" tabindex="0" aria-label="Crop area. Arrow keys move the photo.">
+        <img id="crop-img" alt="" />
+      </div>
+      <label class="crop-zoom" for="crop-zoom">🔍 <input id="crop-zoom" type="range" min="1" max="4" step="0.01" value="1" /></label>
+      <button type="button" id="crop-save" class="btn">Use as cover</button>
+      <button type="button" id="crop-cancel" class="btn secondary">Cancel</button>
+    </div>
+  </dialog>
+
   <!-- Recipe pop-up: opens when you click a card on the board -->
   <dialog id="recipe-dialog" aria-label="Recipe">
     <div class="dialog-inner">
@@ -550,6 +601,7 @@
       images = await Promise.all(files.map(resizeToJpeg));
       $("thumbs").innerHTML = images.map((src) => `<img src="${src}" alt="Screenshot preview" />`).join("");
       $("extract-status").textContent = files.length ? `${files.length} screenshot${files.length > 1 ? "s" : ""} ready.` : "";
+      if (!$("review").hidden && coverChoice === "screenshot") renderCoverPick(); // keep the cover preview current
     }
 
     $("files").addEventListener("change", (e) => handleFiles(e.target.files));
@@ -642,17 +694,56 @@
       $("review").scrollIntoView({ behavior: "smooth" });
     }
 
-    // The recipe website's photo. It's only previewed here; the server downloads it when you save.
-    let photoUrl = "";
+    // ---- Cover photo for the recipe being added ----
+    // coverChoice is "website" (the link's photo), "screenshot" (your first one), "upload" (a photo
+    // you picked), or "none" (the chapter's emoji card). The server saves it when you save the recipe.
+    let photoUrl = "";     // the photo found on the recipe's website, if any
+    let coverUpload = "";  // the photo you picked (JPEG data URL)
+    let coverChoice = "none";
+    const COVER_LABELS = {
+      website: "The photo from the recipe's website",
+      screenshot: "Your first screenshot",
+      upload: "Your photo",
+      none: "No cover: the card shows the chapter's emoji",
+    };
+    const defaultCover = () => (photoUrl ? "website" : images.length ? "screenshot" : "none");
+
     function showPhotoChoice(url) {
       photoUrl = url || "";
-      $("use-photo").checked = true;
-      $("photo-pick").hidden = !photoUrl;
-      if (photoUrl) $("photo-preview").src = photoUrl;
-      else $("photo-preview").removeAttribute("src");
+      coverUpload = "";
+      coverChoice = defaultCover();
+      renderCoverPick();
     }
-    // Some sites won't show their photos on other pages. The server can usually still download it, so keep the choice.
-    $("photo-preview").addEventListener("error", () => { $("photo-preview").removeAttribute("src"); });
+
+    function renderCoverPick() {
+      const src = { website: photoUrl, screenshot: images[0], upload: coverUpload }[coverChoice];
+      $("cover-preview").innerHTML = src
+        ? `<img src="${esc(src)}" alt="Cover photo preview" />`
+        : `<span class="placeholder" aria-hidden="true">${chapterInfo($("f-chapter").value).emoji}</span>`;
+      $("cover-label").textContent = COVER_LABELS[coverChoice];
+      const def = defaultCover();
+      $("cover-default").hidden = coverChoice === def || def === "none";
+      $("cover-default").textContent = def === "website" ? "↺ Use the website's photo" : "↺ Use my first screenshot";
+      $("cover-none").hidden = coverChoice === "none";
+    }
+
+    // Some websites don't let other pages show their photos. The server can usually still download it.
+    $("cover-preview").addEventListener("error", () => {
+      $("cover-preview").innerHTML = `<span class="placeholder" aria-hidden="true">🖼️</span>`;
+      $("cover-label").textContent = "The website's photo (no preview, but it will still be saved)";
+    }, true);
+
+    $("cover-file").addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      e.target.value = ""; // so picking the same file again still works
+      if (!file || !file.type.startsWith("image/")) return;
+      coverUpload = await resizeToJpeg(file);
+      coverChoice = "upload";
+      renderCoverPick();
+    });
+    $("cover-none").addEventListener("click", () => { coverChoice = "none"; renderCoverPick(); });
+    $("cover-default").addEventListener("click", () => { coverChoice = defaultCover(); renderCoverPick(); });
+    $("f-chapter").addEventListener("change", renderCoverPick); // the emoji card follows the chapter
 
     // Turn the ingredients box back into groups: "# Name" starts a new section.
     function parseIngredients(text) {
@@ -684,7 +775,14 @@
         const res = await fetch("/api/recipes", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ recipe, images, photo_url: $("use-photo").checked ? photoUrl : "" }),
+          body: JSON.stringify({
+            recipe,
+            images,
+            photo_url: coverChoice === "website" ? photoUrl : "",
+            cover_image: coverChoice === "upload" ? coverUpload : "",
+            // Only when you turned a cover off yourself, so screenshots added later can still become the cover.
+            no_cover: coverChoice === "none" && defaultCover() !== "none",
+          }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error);
@@ -781,10 +879,13 @@
       }).join("");
     }
 
-    // One card on the board. The cover is the website's photo, else the first screenshot, else a colorful chapter card.
+    // A saved recipe's cover: its chosen photo, else its first screenshot. "" means the emoji card.
+    const coverOf = (r) => (r.no_cover ? "" : r.cover || r.images[0] || "");
+
+    // One card on the board, with its cover photo or a colorful chapter card.
     function card(r) {
       const info = chapterInfo(r.chapter);
-      const coverFile = r.cover || r.images[0];
+      const coverFile = coverOf(r);
       const cover = coverFile
         ? `<img class="pin-cover" src="/images/${esc(coverFile)}" alt="" loading="lazy" />`
         : `<span class="pin-cover placeholder" style="background:${info.color}" aria-hidden="true">${info.emoji}</span>`;
@@ -809,8 +910,19 @@
       const facts = [r.servings && `Serves ${esc(r.servings)}`, r.total_time && esc(r.total_time)].filter(Boolean).join(" · ");
       const chapterOptions = (r.chapter ? "" : `<option value="" selected>Unsorted (pick one)</option>`) + chapterOptionsHtml(r.chapter);
 
+      // A separate cover photo goes at the top; a screenshot cover is marked "★ Cover" below instead.
+      const cover = coverOf(r);
+      const ownPhoto = cover && !r.images.includes(cover);
+      const rid = esc(r.id);
+      const coverText = cover
+        ? "★ picks the photo for your board card."
+        : "No cover: the board card shows the chapter's emoji. Tap ★ on a photo to use it.";
+      // One row of photos: the separate cover photo (if any), then the screenshots.
+      const photos = [...(ownPhoto ? [{ file: cover, own: true }] : []), ...r.images.map((file) => ({ file, own: false }))];
+      const canCrop = (file) => !(file === cover && r.cover_cropped); // don't crop a crop; crop its original instead
+
       $("dialog-content").innerHTML = `<div class="recipe">
-        ${r.cover ? `<img class="recipe-photo" src="/images/${esc(r.cover)}" alt="" />` : ""}
+        ${ownPhoto ? `<img class="recipe-photo" src="/images/${esc(cover)}" alt="" />` : ""}
         <span class="recipe-title">${esc(r.title)}</span>
         <div class="meta">${source}</div>
         ${facts ? `<div class="meta">${facts}</div>` : ""}
@@ -827,30 +939,165 @@
         <h4>Steps</h4>
         <ol>${r.steps.map((s) => `<li>${esc(s)}</li>`).join("")}</ol>
         ${r.notes ? `<h4>Notes</h4><p>${esc(r.notes)}</p>` : ""}
-        ${r.images.length ? `<h4>Original screenshots</h4><div class="thumbs">${r.images.map((f) => `<a href="/images/${esc(f)}" target="_blank"><img src="/images/${esc(f)}" alt="Original screenshot" /></a>`).join("")}</div>` : ""}
+        <h4>Photos</h4>
+        <p class="meta">${coverText}</p>
+        ${photos.length ? `<div class="thumbs">${photos.map(({ file, own }) => `<span class="shot">
+          <a href="/images/${esc(file)}" target="_blank"><img src="/images/${esc(file)}" alt="Recipe photo" /></a>
+          <span class="shot-actions">
+            ${file === cover
+              ? `<span class="shot-badge">★ Cover</span>`
+              : `<button type="button" class="mini" data-action="make-cover" data-id="${rid}" data-file="${esc(file)}" title="Make this the cover" aria-label="Make this photo the cover">★</button>`}
+            ${canCrop(file) ? `<button type="button" class="mini" data-action="crop" data-id="${rid}" data-file="${esc(file)}" title="Crop part of this photo for the cover" aria-label="Crop part of this photo for the cover">✂️</button>` : ""}
+            <button type="button" class="mini" data-action="${own ? "remove-cover" : "remove-shot"}" data-id="${rid}" data-file="${esc(file)}" title="Remove this photo" aria-label="Remove this photo">✕</button>
+          </span>
+        </span>`).join("")}</div>` : ""}
+        <label class="btn secondary small" for="d-shot-files">＋ Add photos</label>
+        <input id="d-shot-files" class="visually-hidden" type="file" accept="image/*" multiple data-id="${rid}" />
+        ${cover ? `<button type="button" class="btn secondary small" data-action="no-cover" data-id="${rid}">No cover</button>` : ""}
+        <div class="dialog-done">
+          <button type="button" class="btn" data-action="done">✓ Done</button>
+          <span class="meta">Changes save as you make them.</span>
+        </div>
       </div>`;
       if (!$("recipe-dialog").open) $("recipe-dialog").showModal();
     }
 
-    // Save a chapter or status change from the pop-up.
-    async function updateRecipe(id, changes) {
+    // Send a change for a saved recipe, then refresh the board and the pop-up.
+    // path is added after /api/recipes/<id>, like "" or "/cover".
+    async function sendChange(id, method, path, body, doneMessage) {
       try {
-        const res = await fetch(`/api/recipes/${encodeURIComponent(id)}`, {
-          method: "PATCH",
+        const res = await fetch(`/api/recipes/${encodeURIComponent(id)}${path}`, {
+          method,
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(changes),
+          body: body ? JSON.stringify(body) : undefined,
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error);
         await loadRecipes();
-        if (changes.chapter) showToast(`Moved to ${chapterInfo(changes.chapter).name} ${chapterInfo(changes.chapter).emoji}`);
-        if (changes.status) showToast(changes.status === "favorite" ? "Added to favorites ♥" : "Marked want to try ★");
+        showToast(doneMessage);
         if (recipes.some((r) => r.id === id)) openRecipe(id); // refresh the pop-up
         else $("recipe-dialog").close(); // it no longer matches the current filter
       } catch (err) {
         showToast(`Couldn't save: ${err.message}`);
       }
     }
+
+    // Save a chapter or status change from the pop-up.
+    function updateRecipe(id, changes) {
+      const message = changes.chapter
+        ? `Moved to ${chapterInfo(changes.chapter).name} ${chapterInfo(changes.chapter).emoji}`
+        : changes.status === "favorite" ? "Added to favorites ♥" : "Marked want to try ★";
+      return sendChange(id, "PATCH", "", changes, message);
+    }
+
+    // Photo buttons in the pop-up
+    $("dialog-content").addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-action]");
+      if (!btn) return;
+      const { id, file } = btn.dataset;
+      if (btn.dataset.action === "no-cover") sendChange(id, "PUT", "/cover", { none: true }, "Cover removed");
+      if (btn.dataset.action === "make-cover") sendChange(id, "PUT", "/cover", { screenshot: file }, "New cover ★");
+      if (btn.dataset.action === "remove-shot" && confirm("Remove this photo? It will be deleted.")) {
+        sendChange(id, "DELETE", `/screenshots/${encodeURIComponent(file)}`, null, "Photo removed");
+      }
+      if (btn.dataset.action === "remove-cover" && confirm("Remove this photo? It will be deleted.")) {
+        sendChange(id, "DELETE", "/cover", null, "Photo removed");
+      }
+      if (btn.dataset.action === "crop") openCrop(id, file);
+      if (btn.dataset.action === "done") $("recipe-dialog").close();
+    });
+
+    // ---- Crop window ----
+    // The photo sits inside a card-shaped frame. "scale" is screen pixels per photo pixel, and
+    // (x, y) is where the photo's top-left corner is, relative to the frame. The photo always
+    // covers the whole frame, so the crop never has empty edges.
+    const crop = { id: "", w: 0, h: 0, x: 0, y: 0, scale: 1, minScale: 1 };
+    const frameSize = () => ({ fw: $("crop-frame").clientWidth, fh: $("crop-frame").clientHeight });
+
+    function placeCrop() {
+      const { fw, fh } = frameSize();
+      crop.x = Math.min(0, Math.max(fw - crop.w * crop.scale, crop.x));
+      crop.y = Math.min(0, Math.max(fh - crop.h * crop.scale, crop.y));
+      $("crop-img").style.transform = `translate(${crop.x}px, ${crop.y}px) scale(${crop.scale})`;
+    }
+
+    function openCrop(id, file) {
+      crop.id = id;
+      const img = $("crop-img");
+      img.onload = () => {
+        crop.w = img.naturalWidth;
+        crop.h = img.naturalHeight;
+        const { fw, fh } = frameSize();
+        crop.minScale = Math.max(fw / crop.w, fh / crop.h); // just big enough to fill the frame
+        crop.scale = crop.minScale;
+        crop.x = (fw - crop.w * crop.scale) / 2; // start centered
+        crop.y = (fh - crop.h * crop.scale) / 2;
+        $("crop-zoom").value = 1;
+        placeCrop();
+      };
+      $("crop-dialog").showModal();
+      img.removeAttribute("src"); // so reopening the same photo still runs onload
+      img.src = `/images/${encodeURIComponent(file)}`;
+      $("crop-frame").focus();
+    }
+
+    // Zoom around the middle of the frame, so what you're looking at stays put.
+    function zoomCrop(newScale) {
+      const { fw, fh } = frameSize();
+      const cx = (fw / 2 - crop.x) / crop.scale;
+      const cy = (fh / 2 - crop.y) / crop.scale;
+      crop.scale = Math.min(crop.minScale * 4, Math.max(crop.minScale, newScale));
+      crop.x = fw / 2 - cx * crop.scale;
+      crop.y = fh / 2 - cy * crop.scale;
+      $("crop-zoom").value = crop.scale / crop.minScale;
+      placeCrop();
+    }
+    $("crop-zoom").addEventListener("input", (e) => zoomCrop(crop.minScale * Number(e.target.value)));
+    $("crop-frame").addEventListener("wheel", (e) => {
+      e.preventDefault();
+      zoomCrop(crop.scale * (e.deltaY < 0 ? 1.08 : 1 / 1.08)); // trackpad pinch or mouse wheel
+    }, { passive: false });
+
+    // Drag with a mouse or finger.
+    let drag = null;
+    $("crop-frame").addEventListener("pointerdown", (e) => {
+      drag = { px: e.clientX, py: e.clientY, x: crop.x, y: crop.y };
+      $("crop-frame").setPointerCapture(e.pointerId);
+    });
+    $("crop-frame").addEventListener("pointermove", (e) => {
+      if (!drag) return;
+      crop.x = drag.x + (e.clientX - drag.px);
+      crop.y = drag.y + (e.clientY - drag.py);
+      placeCrop();
+    });
+    $("crop-frame").addEventListener("pointerup", () => { drag = null; });
+    $("crop-frame").addEventListener("pointercancel", () => { drag = null; });
+
+    // Arrow keys move the photo too.
+    $("crop-frame").addEventListener("keydown", (e) => {
+      const step = e.shiftKey ? 40 : 10;
+      const moves = { ArrowLeft: [step, 0], ArrowRight: [-step, 0], ArrowUp: [0, step], ArrowDown: [0, -step] };
+      if (!moves[e.key]) return;
+      e.preventDefault();
+      crop.x += moves[e.key][0];
+      crop.y += moves[e.key][1];
+      placeCrop();
+    });
+
+    // Cut out the part inside the frame and save it as the cover (the original photo stays).
+    $("crop-save").addEventListener("click", () => {
+      const { fw, fh } = frameSize();
+      const sx = -crop.x / crop.scale, sy = -crop.y / crop.scale;
+      const sw = fw / crop.scale, sh = fh / crop.scale;
+      const outW = Math.round(Math.min(1200, sw)); // plenty sharp for a card; keeps files small
+      const canvas = document.createElement("canvas");
+      canvas.width = outW;
+      canvas.height = Math.round(outW * (fh / fw));
+      canvas.getContext("2d").drawImage($("crop-img"), sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+      $("crop-dialog").close();
+      sendChange(crop.id, "PUT", "/cover", { image: canvas.toDataURL("image/jpeg", 0.88), cropped: true }, "New cover ✂️");
+    });
+    $("crop-cancel").addEventListener("click", () => $("crop-dialog").close());
 
     $("results").addEventListener("click", (e) => {
       const pin = e.target.closest(".pin");
@@ -872,6 +1119,15 @@
       }
       if (e.target.id === "d-chapter") updateRecipe(e.target.dataset.id, { chapter: e.target.value });
       if (e.target.id === "d-status") updateRecipe(e.target.dataset.id, { status: e.target.value });
+
+      // Adding photos: they're shrunk like screenshots before uploading.
+      if (e.target.id === "d-shot-files") {
+        const files = [...e.target.files].filter((f) => f.type.startsWith("image/"));
+        if (!files.length) return;
+        showToast("Uploading…");
+        const resized = await Promise.all(files.map(resizeToJpeg));
+        sendChange(e.target.dataset.id, "POST", "/screenshots", { images: resized }, `Added ${resized.length} photo${resized.length > 1 ? "s" : ""} 📷`);
+      }
     });
     $("dialog-close").addEventListener("click", () => $("recipe-dialog").close());
     $("recipe-dialog").addEventListener("click", (e) => {
