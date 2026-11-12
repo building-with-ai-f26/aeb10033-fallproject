@@ -127,9 +127,9 @@ function recipeSchema(chapterList) {
 // ---- Reading a recipe from a website link ----
 // An error whose message is safe and useful to show the user (sent as a 400, not a 500).
 class UserError extends Error {
-  constructor(message) {
+  constructor(message, status = 400) {
     super(message);
-    this.status = 400;
+    this.status = status;
   }
 }
 
@@ -320,7 +320,7 @@ async function downloadPhoto(photoUrl, recipeId) {
       }
       chunks.push(chunk);
     }
-    const name = `${recipeId}-cover${ext}`;
+    const name = coverFileName(recipeId, ext);
     fs.writeFileSync(path.join(IMAGE_DIR, name), Buffer.concat(chunks));
     console.log(`[photo] saved ${name} (${Math.round(size / 1024)} KB)`);
     return name;
@@ -435,6 +435,35 @@ function isJpegDataUrl(v) {
   return typeof v === "string" && v.startsWith(JPEG_PREFIX);
 }
 
+// ---- A recipe's photos ----
+// "images" are its screenshots. "cover" is the picture on its board card: a separate cover photo
+// (from the website or uploaded), or one of its screenshots. If cover is "", the card uses the
+// first screenshot. no_cover: true means show the colorful emoji card instead.
+function writeJpeg(dataUrl, name) {
+  fs.writeFileSync(path.join(IMAGE_DIR, name), Buffer.from(dataUrl.slice(JPEG_PREFIX.length), "base64"));
+  return name;
+}
+
+// A new name each time, so the browser doesn't keep showing an old cover it remembered.
+function coverFileName(recipeId, ext) {
+  return `${recipeId}-cover-${Date.now().toString(36)}${ext}`;
+}
+
+// Delete the recipe's separate cover photo file (never one of its screenshots).
+function deleteCoverFile(recipe) {
+  if (recipe.cover && !recipe.images.includes(recipe.cover)) fs.rmSync(path.join(IMAGE_DIR, recipe.cover), { force: true });
+}
+
+// Load all recipes, change one, and save. Throws a 404 if the recipe doesn't exist.
+function changeRecipe(id, change) {
+  const all = loadRecipes();
+  const recipe = all.find((r) => r.id === id);
+  if (!recipe) throw new UserError("Recipe not found.", 404);
+  change(recipe);
+  saveRecipes(all);
+  return recipe;
+}
+
 // ---- Routes ----
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
@@ -495,24 +524,27 @@ const server = http.createServer(async (req, res) => {
 
     // Save a reviewed recipe and its original screenshots
     if (req.method === "POST" && url.pathname === "/api/recipes") {
-      const { recipe = {}, images = [], photo_url = "" } = await readJson(req);
+      // Cover choice: cover_image (a photo you picked), photo_url (the website's photo),
+      // no_cover (emoji card), or none of these (first screenshot).
+      const { recipe = {}, images = [], photo_url = "", cover_image = "", no_cover = false } = await readJson(req);
       const clean = cleanRecipe(recipe);
       if (!clean.title) return sendJson(res, 400, { error: "A recipe needs a title." });
       if (!images.every(isJpegDataUrl)) return sendJson(res, 400, { error: "Images must be JPEG data URLs." });
+      if (cover_image && !isJpegDataUrl(cover_image)) return sendJson(res, 400, { error: "The cover photo must be a JPEG data URL." });
 
       const id = crypto.randomUUID();
-      const imageFiles = images.map((dataUrl, i) => {
-        const name = `${id}-${i + 1}.jpg`;
-        fs.writeFileSync(path.join(IMAGE_DIR, name), Buffer.from(dataUrl.slice(JPEG_PREFIX.length), "base64"));
-        return name;
-      });
+      const imageFiles = images.map((dataUrl, i) => writeJpeg(dataUrl, `${id}-${i + 1}.jpg`));
+      let cover = "";
+      if (cover_image) cover = writeJpeg(cover_image, coverFileName(id, ".jpg"));
+      else if (photo_url && !no_cover) cover = await downloadPhoto(String(photo_url), id);
 
       const saved = {
         id,
         ...clean,
         status: STATUSES.includes(recipe.status) ? recipe.status : "want_to_try",
         images: imageFiles,
-        cover: photo_url ? await downloadPhoto(String(photo_url), id) : "", // the website's photo, if any
+        cover,
+        no_cover: Boolean(no_cover) && !cover_image,
         created_at: new Date().toISOString(),
       };
       const all = loadRecipes();
@@ -544,34 +576,98 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 201, allChapters().map(({ name: n, emoji: e }) => ({ name: n, emoji: e })));
     }
 
-    // Move a saved recipe to another chapter, switch "want to try" / "favorite", or set a cover photo from a web address
+    // Move a saved recipe to another chapter, or switch "want to try" / "favorite"
     const recipeRoute = url.pathname.match(/^\/api\/recipes\/([\w-]+)$/);
     if (req.method === "PATCH" && recipeRoute) {
-      const { chapter, status, photo_url } = await readJson(req);
+      const { chapter, status } = await readJson(req);
       if (chapter !== undefined && !chapterNames().includes(chapter)) return sendJson(res, 400, { error: "Unknown chapter." });
       if (status !== undefined && !STATUSES.includes(status)) return sendJson(res, 400, { error: "Unknown status." });
+      const updated = changeRecipe(recipeRoute[1], (r) => {
+        if (chapter !== undefined) r.chapter = chapter;
+        if (status !== undefined) r.status = status;
+      });
+      console.log(`[update] "${updated.title}" -> ${updated.chapter || "Unsorted"}, ${updated.status}`);
+      return sendJson(res, 200, updated);
+    }
 
-      const recipe = loadRecipes().find((r) => r.id === recipeRoute[1]);
-      if (!recipe) return sendJson(res, 404, { error: "Recipe not found." });
-      let cover;
-      if (photo_url !== undefined) {
-        cover = await downloadPhoto(String(photo_url), recipe.id);
-        if (!cover) return sendJson(res, 400, { error: "Couldn't download that photo." });
+    // Change a saved recipe's cover. Send ONE of:
+    //   { image: "<JPEG data URL>" }  a photo you picked (add cropped: true if it's a crop of one of its photos)
+    //   { screenshot: "<file name>" } one of its screenshots
+    //   { photo_url: "https://..." }  a photo on the web
+    //   { none: true }                no cover (the emoji card)
+    const coverRoute = url.pathname.match(/^\/api\/recipes\/([\w-]+)\/cover$/);
+    if (req.method === "PUT" && coverRoute) {
+      const { image, screenshot, photo_url, none, cropped } = await readJson(req);
+      let newCover = "";
+      if (image !== undefined) {
+        if (!isJpegDataUrl(image)) return sendJson(res, 400, { error: "The cover photo must be a JPEG data URL." });
+      } else if (photo_url !== undefined) {
+        newCover = await downloadPhoto(String(photo_url), coverRoute[1]);
+        if (!newCover) return sendJson(res, 400, { error: "Couldn't download that photo." });
+      } else if (screenshot === undefined && none !== true) {
+        return sendJson(res, 400, { error: "Send an image, a screenshot, a photo_url, or none: true." });
       }
 
-      // Re-read after the download, so a save made in the meantime isn't lost.
-      const all = loadRecipes();
-      const current = all.find((r) => r.id === recipe.id);
-      if (!current) return sendJson(res, 404, { error: "Recipe not found." });
-      if (chapter !== undefined) current.chapter = chapter;
-      if (status !== undefined) current.status = status;
-      if (cover) {
-        if (current.cover && current.cover !== cover) fs.rmSync(path.join(IMAGE_DIR, current.cover), { force: true });
-        current.cover = cover;
-      }
-      saveRecipes(all);
-      console.log(`[update] "${current.title}" -> ${current.chapter || "Unsorted"}, ${current.status}${cover ? ", new cover photo" : ""}`);
-      return sendJson(res, 200, current);
+      const updated = changeRecipe(coverRoute[1], (r) => {
+        if (screenshot !== undefined && !r.images.includes(screenshot)) throw new UserError("That screenshot isn't part of this recipe.");
+        if (image !== undefined) newCover = writeJpeg(image, coverFileName(r.id, ".jpg"));
+        if (screenshot !== undefined) newCover = screenshot;
+        // The old separate cover photo: a crop is just replaced (its original is still in the row);
+        // anything else is kept as a regular photo (only ✕ deletes photos).
+        if (r.cover && !r.images.includes(r.cover)) {
+          if (r.cover_cropped) deleteCoverFile(r);
+          else r.images.unshift(r.cover);
+        }
+        r.cover = newCover;
+        r.cover_cropped = image !== undefined && cropped === true;
+        r.no_cover = none === true;
+      });
+      console.log(`[cover] "${updated.title}" -> ${updated.no_cover ? "emoji card" : updated.cover}`);
+      return sendJson(res, 200, updated);
+    }
+
+    // Remove a saved recipe's separate cover photo; the cover goes back to its first screenshot
+    if (req.method === "DELETE" && coverRoute) {
+      const updated = changeRecipe(coverRoute[1], (r) => {
+        deleteCoverFile(r);
+        r.cover = "";
+        r.cover_cropped = false;
+        r.no_cover = false;
+      });
+      console.log(`[cover] "${updated.title}" -> removed the cover photo`);
+      return sendJson(res, 200, updated);
+    }
+
+    // Add photos or screenshots to a saved recipe (attached as-is; the AI doesn't re-read them).
+    // If the recipe was showing its emoji card, the first new photo becomes the cover.
+    const shotsRoute = url.pathname.match(/^\/api\/recipes\/([\w-]+)\/screenshots$/);
+    if (req.method === "POST" && shotsRoute) {
+      const { images = [] } = await readJson(req);
+      if (!images.length || !images.every(isJpegDataUrl)) return sendJson(res, 400, { error: "Add at least one JPEG photo." });
+      const updated = changeRecipe(shotsRoute[1], (r) => {
+        const added = images.map((dataUrl) => writeJpeg(dataUrl, `${r.id}-${crypto.randomUUID().slice(0, 8)}.jpg`));
+        if (r.no_cover) {
+          r.cover = added[0];
+          r.no_cover = false;
+        }
+        r.images.push(...added);
+      });
+      console.log(`[screenshots] "${updated.title}" +${images.length} (now ${updated.images.length})`);
+      return sendJson(res, 201, updated);
+    }
+
+    // Remove one screenshot from a saved recipe
+    const shotRoute = url.pathname.match(/^\/api\/recipes\/([\w-]+)\/screenshots\/([\w.-]+)$/);
+    if (req.method === "DELETE" && shotRoute) {
+      const file = shotRoute[2];
+      const updated = changeRecipe(shotRoute[1], (r) => {
+        if (!r.images.includes(file)) throw new UserError("That screenshot isn't part of this recipe.", 404);
+        r.images = r.images.filter((f) => f !== file);
+        if (r.cover === file) r.cover = ""; // it was the cover: fall back to the next screenshot
+        fs.rmSync(path.join(IMAGE_DIR, file), { force: true });
+      });
+      console.log(`[screenshots] "${updated.title}" removed ${file} (now ${updated.images.length})`);
+      return sendJson(res, 200, updated);
     }
 
     sendJson(res, 404, { error: "Not found" });
