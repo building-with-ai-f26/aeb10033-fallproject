@@ -6,6 +6,7 @@ const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const { searchRecipe } = require("./search.js");
 
 // ---- Settings (secrets come from .env, never from this file) ----
 try {
@@ -81,7 +82,8 @@ Sources include social media captions, recipe websites, cookbook pages, and hand
 
 Rules:
 - Ignore everything that is not part of the recipe: ads, phone status bars, app buttons, comments, ratings, and calls to action (like "comment for the link").
-- Copy quantities and wording faithfully. Do not invent ingredients, amounts, times, or steps that are not shown. Use an empty string for any field that is not shown.
+- Copy quantities and wording faithfully. Do not invent ingredients, amounts, or steps that are not shown. Use an empty string for any field that is not shown (except total_time, below).
+- total_time: the total time as shown. If it is not shown, estimate it from the steps (including baking, chilling, and rising) and write it like "about 40 min (estimated)".
 - Keep ingredient sections (like "Sauce" or "Topping") as separate groups. Use an empty group name if the recipe has no sections. If a sub-recipe is written as a paragraph, make it its own ingredient group and add its method as steps.
 - Write @mentions as plain words: "1 cup @somebrand flour" becomes "1 cup flour (somebrand)".
 - Write steps in order without numbers. If a step continues across screenshots or pages, join it into one step.
@@ -89,7 +91,7 @@ Rules:
 - "uncertain" is a checklist for the user, so only include things they should double-check. Do not include notes about what you did (like merging overlapping screenshots) or about fields that simply aren't shown.
 - source_name: who or where the recipe came from, as shown (creator, account, website, cookbook, or a person named in a handwritten note). For a website, use its name or domain here.
 - source_url: a complete link to the specific recipe page (starting with http) only if one is fully visible. A bare domain is not a link. Otherwise "".
-- tags: 4 to 8 short lowercase tags for search: the meal type (breakfast, lunch, dinner, dessert, snack, side, drink, baking), "meal" for any main dish, "quick" if it takes about 30 minutes or less in total, the main ingredients or flavors (like chicken or chocolate), and the cuisine if obvious.
+- tags: 4 to 8 short lowercase tags for search: the meal type (breakfast, lunch, dinner, dessert, snack, side, drink, baking), "meal" for any main dish, "quick" only if the total time (shown or estimated) is 30 minutes or less, the main ingredients or flavors (like chicken or chocolate), and the cuisine if obvious.
 - chapter: the ONE cookbook chapter this recipe belongs in most. Choose from:
 ${chapters.map((c) => `  - ${c.name}${c.hint ? `: ${c.hint}` : ""}`).join("\n")}
 - notes: short tips from the source that are not steps (like substitutions). Use "" if none.
@@ -378,24 +380,6 @@ async function extractRecipe({ images, text, model }) {
   return { recipe, usage };
 }
 
-// ---- Search: every word you type must appear in the title, ingredients, tags, source, or notes ----
-function matchesSearch(recipe, query) {
-  const searchable = [
-    recipe.title,
-    recipe.chapter, // so "desserts" also finds everything in the Desserts chapter
-    recipe.source_name,
-    recipe.notes,
-    ...recipe.tags,
-    ...recipe.ingredient_groups.flatMap((g) => [g.name, ...g.items]),
-  ].join(" ").toLowerCase();
-
-  return query.toLowerCase().split(/\s+/).filter(Boolean).every((word) => {
-    // "desserts" should still find "dessert"
-    const singular = word.length > 3 && word.endsWith("s") ? word.slice(0, -1) : word;
-    return searchable.includes(singular);
-  });
-}
-
 // Keep only the fields we expect, so edited recipes are always saved in the same shape.
 function cleanRecipe(r) {
   const str = (v) => (typeof v === "string" ? v.trim() : "");
@@ -522,8 +506,11 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/api/recipes") {
       const q = url.searchParams.get("q") || "";
       const status = url.searchParams.get("status") || "";
+      // match is "best" (title, tags, chapter, or source) or "also" (only in ingredients or notes)
       const results = loadRecipes()
-        .filter((r) => (!status || r.status === status) && matchesSearch(r, q))
+        .filter((r) => !status || r.status === status)
+        .map((r) => ({ ...r, match: searchRecipe(r, q) }))
+        .filter((r) => r.match)
         .sort((a, b) => b.created_at.localeCompare(a.created_at));
       return sendJson(res, 200, results);
     }
