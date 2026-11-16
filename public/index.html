@@ -253,6 +253,8 @@
 
     /* ---------- Chapters, like a cookbook ---------- */
     .chapter { margin-top: 26px; }
+    .chapter.also { border-top: 2px dashed var(--line); padding-top: 18px; }
+    .chapter.also .board { opacity: 0.85; }
     .chapter-title {
       display: flex;
       align-items: baseline;
@@ -897,8 +899,14 @@
         return;
       }
 
-      const shown = groups.filter((g) => g.items.length && (activeChapter === "all" || g.name === activeChapter));
-      if (!shown.length) {
+      // Best matches go on the board by chapter. Recipes where your search only appears in the
+      // ingredients or notes (like "chicken" in "chicken broth") go in their own section underneath.
+      const inChapter = (r) => activeChapter === "all" || (r.chapter || "") === activeChapter;
+      const shown = groups
+        .map((g) => ({ ...g, items: g.items.filter((r) => r.match !== "also") }))
+        .filter((g) => g.items.length && (activeChapter === "all" || g.name === activeChapter));
+      const also = recipes.filter((r) => r.match === "also" && inChapter(r));
+      if (!shown.length && !also.length) {
         $("results").innerHTML = `<p class="empty"><span class="big" aria-hidden="true">📭</span>Nothing in this chapter matches. Try “All”.</p>`;
         return;
       }
@@ -908,7 +916,11 @@
           <h3 class="chapter-title">${info.emoji} ${esc(info.name)} <span class="n">${g.items.length}</span></h3>
           <div class="board">${g.items.map(card).join("")}</div>
         </div>`;
-      }).join("");
+      }).join("") + (also.length ? `<div class="chapter also">
+          <h3 class="chapter-title">🔎 Also mentions “${esc(query)}” <span class="n">${also.length}</span></h3>
+          <p class="meta">In the ingredients or notes</p>
+          <div class="board">${also.map(card).join("")}</div>
+        </div>` : "");
     }
 
     // A saved recipe's cover: its chosen photo, else its first screenshot. "" means the emoji card.

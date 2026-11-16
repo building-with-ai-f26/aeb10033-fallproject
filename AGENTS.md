@@ -6,15 +6,16 @@
 - **What this repo builds:** Scrapbook Kitchen, a personal recipe saver. You upload screenshots or photos of a recipe (social media posts, websites, cookbooks, handwritten cards) or paste text; AI turns them into a clean recipe you review, save as "want to try" or "favorite," and search later.
 - **Primary user & core workflow:** See the living PRD in `docs/index.html`.
 - **Tech stack:** Node.js 22+ using only built-in modules (no npm packages) / one HTML page with plain JavaScript / OpenRouter API (default model `anthropic/claude-haiku-5.5`) / recipes stored in `data/recipes.json` and screenshots in `data/images/` (both git-ignored).
-- **Main files:** `server.js` (server, AI prompt, link reading, save, search, photos) and `public/index.html` (the page).
+- **Main files:** `server.js` (server, AI prompt, link reading, save, photos), `search.js` (search matching), and `public/index.html` (the page).
 
 ### Project structure
 ```
-server.js            Node server: routes, AI prompt + recipe format, link reading, search, photo files
+server.js            Node server: routes, AI prompt + recipe format, link reading, photo files
+search.js            Search matching (whole words, also-matches, quick estimates)
 public/index.html    The whole app page (HTML, CSS, plain JavaScript), including PostHog analytics
 docs/index.html      Product Page on GitHub Pages: PRD, build log, PostHog snippet
 docs/*.png           Screenshots shown on the Product Page
-tests/               Verification notes (automated tests go here)
+tests/               Automated tests (node --test) and verification notes
 data/                Private, git-ignored, created on first run:
   recipes.json         saved recipes
   chapters.json        chapters you added (built-in chapters live in server.js)
@@ -33,7 +34,7 @@ data/                Private, git-ignored, created on first run:
 - **Install dependencies:** None. Needs Node.js 22+.
 - **Set up keys:** `cp .env.example .env`, then add a real `OPENROUTER_API_KEY`. Optional: `POSTHOG_KEY` (the public `phc_` project key) turns on analytics in the local app.
 - **Run locally:** `node server.js`, then open http://localhost:3000
-- **Run deterministic tests:** None yet.
+- **Run deterministic tests:** `node --test` (runs `tests/*.test.js`; no install needed)
 - **Run model evals:** None yet (Build 4).
 
 ## 3. Non-Negotiable Engineering Rules
