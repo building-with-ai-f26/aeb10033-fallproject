@@ -41,11 +41,8 @@ if (!SUPABASE_URL || !SUPABASE_KEY) {
   process.exit(1);
 }
 
-// ---- Storage: recipes and chapters live in Supabase (see the Database section below).
-// Photos are still files in data/images until they move to Supabase Storage.
-const DATA_DIR = path.join(__dirname, "data");
-const IMAGE_DIR = path.join(DATA_DIR, "images");
-fs.mkdirSync(IMAGE_DIR, { recursive: true });
+// ---- Storage: recipes, chapters, and photos all live in Supabase
+// (see the Database and Photos sections below). Nothing is saved on this computer or on Render.
 
 // ---- Cookbook chapters: every recipe lives in exactly one ----
 // Built-in chapters are listed here. Chapters you add in the app are saved in the Supabase "chapters" table.
@@ -289,9 +286,9 @@ function firstImageUrl(image) {
 const PHOTO_TYPES = { "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif", "image/avif": ".avif" };
 const MAX_PHOTO_BYTES = 10 * 1024 * 1024;
 
-// Download a recipe photo into data/images and return its file name, or "" if that didn't work.
+// Download a recipe photo into your photo folder and return its file name, or "" if that didn't work.
 // A missing photo never stops a recipe from saving; the card just keeps its emoji cover.
-async function downloadPhoto(photoUrl, recipeId) {
+async function downloadPhoto(user, photoUrl, recipeId) {
   try {
     const url = new URL(photoUrl);
     if (url.protocol !== "https:" && url.protocol !== "http:") return "";
@@ -300,7 +297,8 @@ async function downloadPhoto(photoUrl, recipeId) {
       redirect: "follow",
       signal: AbortSignal.timeout(15000),
     });
-    const ext = PHOTO_TYPES[(res.headers.get("content-type") || "").split(";")[0].trim()];
+    const type = (res.headers.get("content-type") || "").split(";")[0].trim();
+    const ext = PHOTO_TYPES[type];
     if (!res.ok || !ext) {
       console.log(`[photo] skipped ${url.hostname} (status ${res.status}, type ${res.headers.get("content-type")})`);
       return "";
@@ -316,7 +314,7 @@ async function downloadPhoto(photoUrl, recipeId) {
       chunks.push(chunk);
     }
     const name = coverFileName(recipeId, ext);
-    fs.writeFileSync(path.join(IMAGE_DIR, name), Buffer.concat(chunks));
+    await savePhoto(user, name, Buffer.concat(chunks), type);
     console.log(`[photo] saved ${name} (${Math.round(size / 1024)} KB)`);
     return name;
   } catch (err) {
@@ -416,9 +414,8 @@ function isJpegDataUrl(v) {
 // "images" are its screenshots. "cover" is the picture on its board card: a separate cover photo
 // (from the website or uploaded), or one of its screenshots. If cover is "", the card uses the
 // first screenshot. no_cover: true means show the colorful emoji card instead.
-function writeJpeg(dataUrl, name) {
-  fs.writeFileSync(path.join(IMAGE_DIR, name), Buffer.from(dataUrl.slice(JPEG_PREFIX.length), "base64"));
-  return name;
+async function saveJpeg(user, dataUrl, name) {
+  return savePhoto(user, name, Buffer.from(dataUrl.slice(JPEG_PREFIX.length), "base64"), "image/jpeg");
 }
 
 // A new name each time, so the browser doesn't keep showing an old cover it remembered.
@@ -427,8 +424,8 @@ function coverFileName(recipeId, ext) {
 }
 
 // Delete the recipe's separate cover photo file (never one of its screenshots).
-function deleteCoverFile(recipe) {
-  if (recipe.cover && !recipe.images.includes(recipe.cover)) fs.rmSync(path.join(IMAGE_DIR, recipe.cover), { force: true });
+async function deleteCoverFile(user, recipe) {
+  if (recipe.cover && !recipe.images.includes(recipe.cover)) await deletePhoto(user, recipe.cover);
 }
 
 // ---- Routes ----
@@ -540,9 +537,39 @@ async function changeRecipe(user, id, change) {
   const rows = await db(user, `recipes?select=data&id=eq.${id}`);
   if (!rows.length) throw new UserError("Recipe not found.", 404);
   const recipe = rows[0].data;
-  change(recipe);
+  await change(recipe);
   await db(user, `recipes?id=eq.${id}`, { method: "PATCH", body: { data: recipe }, headers: { Prefer: "return=minimal" } });
   return recipe;
+}
+
+// ---- Photos: a private Supabase Storage bucket, one folder per person ----
+// Each photo is saved as photos/<user id>/<file name>. The storage lock rule in supabase/schema.sql
+// only lets you read or change files in your own folder.
+const PHOTO_NAME = /^[\w.-]+$/; // file names we create look like <recipe id>-1.jpg
+function photoUrl(user, name) {
+  if (!PHOTO_NAME.test(name)) throw new UserError("Not a photo name.", 404);
+  return `${SUPABASE_URL}/storage/v1/object/photos/${user.id}/${name}`;
+}
+
+function storageHeaders(user, extra = {}) {
+  return { apikey: SUPABASE_KEY, Authorization: `Bearer ${user.token}`, ...extra };
+}
+
+async function savePhoto(user, name, bytes, type) {
+  const res = await fetch(photoUrl(user, name), {
+    method: "POST",
+    headers: storageHeaders(user, { "Content-Type": type }),
+    body: bytes,
+    signal: AbortSignal.timeout(30000),
+  });
+  if (!res.ok) throw new Error(`Couldn't save the photo (${res.status}): ${(await res.text()).slice(0, 200)}`);
+  return name;
+}
+
+// Deleting is best-effort: a leftover file is harmless, so it never stops the change you made.
+async function deletePhoto(user, name) {
+  const res = await fetch(photoUrl(user, name), { method: "DELETE", headers: storageHeaders(user) }).catch((err) => err);
+  if (!res.ok) console.log(`[photo] couldn't delete ${name} (${res.status || res.message})`);
 }
 
 // Built-in chapters plus the ones this person added, oldest first.
@@ -596,6 +623,8 @@ const server = http.createServer(async (req, res) => {
         await supabase("/auth/v1/logout", { method: "POST", token: access }).catch(() => {}); // ends the session at Supabase too
       }
       clearSessionCookies(req, res);
+      // Tell the browser to forget saved photos, so the next person on this computer can't see them
+      res.setHeader("Clear-Site-Data", '"cache"');
       return sendJson(res, 200, { ok: true });
     }
 
@@ -615,13 +644,23 @@ const server = http.createServer(async (req, res) => {
       return res.end(page);
     }
 
-    // Saved original screenshots (basename() stops paths like ../../.env)
+    // Your photos, fetched from your own folder in Supabase Storage with your sign-in.
+    // (The page's <img> tags send the sign-in cookie, so the page didn't need to change.)
     if (req.method === "GET" && url.pathname.startsWith("/images/")) {
-      const file = path.join(IMAGE_DIR, path.basename(url.pathname));
-      if (!fs.existsSync(file)) return sendJson(res, 404, { error: "Not found" });
-      const type = Object.keys(PHOTO_TYPES).find((t) => PHOTO_TYPES[t] === path.extname(file)) || "image/jpeg";
-      res.writeHead(200, { "Content-Type": type });
-      return fs.createReadStream(file).pipe(res);
+      const name = decodeURIComponent(url.pathname.slice("/images/".length));
+      const photo = await fetch(photoUrl(user, name).replace("/object/photos/", "/object/authenticated/photos/"), {
+        headers: storageHeaders(user),
+        signal: AbortSignal.timeout(30000),
+      });
+      if (!photo.ok) return sendJson(res, 404, { error: "Not found" });
+      res.writeHead(200, {
+        "Content-Type": photo.headers.get("content-type") || "image/jpeg",
+        // The browser keeps the photo for a day (photos never change under the same name), but only
+        // for this sign-in: "Vary: Cookie" makes it ask again when a different account is signed in.
+        "Cache-Control": "private, max-age=86400",
+        Vary: "Cookie",
+      });
+      return res.end(Buffer.from(await photo.arrayBuffer()));
     }
 
     // Link/screenshots/text -> AI -> recipe draft for review (nothing is saved yet)
@@ -679,10 +718,10 @@ const server = http.createServer(async (req, res) => {
       if (cover_image && !isJpegDataUrl(cover_image)) return sendJson(res, 400, { error: "The cover photo must be a JPEG data URL." });
 
       const id = crypto.randomUUID();
-      const imageFiles = images.map((dataUrl, i) => writeJpeg(dataUrl, `${id}-${i + 1}.jpg`));
+      const imageFiles = await Promise.all(images.map((dataUrl, i) => saveJpeg(user, dataUrl, `${id}-${i + 1}.jpg`)));
       let cover = "";
-      if (cover_image) cover = writeJpeg(cover_image, coverFileName(id, ".jpg"));
-      else if (photo_url && !no_cover) cover = await downloadPhoto(String(photo_url), id);
+      if (cover_image) cover = await saveJpeg(user, cover_image, coverFileName(id, ".jpg"));
+      else if (photo_url && !no_cover) cover = await downloadPhoto(user, String(photo_url), id);
 
       const saved = {
         id,
@@ -748,20 +787,20 @@ const server = http.createServer(async (req, res) => {
       if (image !== undefined) {
         if (!isJpegDataUrl(image)) return sendJson(res, 400, { error: "The cover photo must be a JPEG data URL." });
       } else if (photo_url !== undefined) {
-        newCover = await downloadPhoto(String(photo_url), coverRoute[1]);
+        newCover = await downloadPhoto(user, String(photo_url), coverRoute[1]);
         if (!newCover) return sendJson(res, 400, { error: "Couldn't download that photo." });
       } else if (screenshot === undefined && none !== true) {
         return sendJson(res, 400, { error: "Send an image, a screenshot, a photo_url, or none: true." });
       }
 
-      const updated = await changeRecipe(user, coverRoute[1], (r) => {
+      const updated = await changeRecipe(user, coverRoute[1], async (r) => {
         if (screenshot !== undefined && !r.images.includes(screenshot)) throw new UserError("That screenshot isn't part of this recipe.");
-        if (image !== undefined) newCover = writeJpeg(image, coverFileName(r.id, ".jpg"));
+        if (image !== undefined) newCover = await saveJpeg(user, image, coverFileName(r.id, ".jpg"));
         if (screenshot !== undefined) newCover = screenshot;
         // The old separate cover photo: a crop is just replaced (its original is still in the row);
         // anything else is kept as a regular photo (only ✕ deletes photos).
         if (r.cover && !r.images.includes(r.cover)) {
-          if (r.cover_cropped) deleteCoverFile(r);
+          if (r.cover_cropped) await deleteCoverFile(user, r);
           else r.images.unshift(r.cover);
         }
         r.cover = newCover;
@@ -774,8 +813,8 @@ const server = http.createServer(async (req, res) => {
 
     // Remove a saved recipe's separate cover photo; the cover goes back to its first screenshot
     if (req.method === "DELETE" && coverRoute) {
-      const updated = await changeRecipe(user, coverRoute[1], (r) => {
-        deleteCoverFile(r);
+      const updated = await changeRecipe(user, coverRoute[1], async (r) => {
+        await deleteCoverFile(user, r);
         r.cover = "";
         r.cover_cropped = false;
         r.no_cover = false;
@@ -790,8 +829,8 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && shotsRoute) {
       const { images = [] } = await readJson(req);
       if (!images.length || !images.every(isJpegDataUrl)) return sendJson(res, 400, { error: "Add at least one JPEG photo." });
-      const updated = await changeRecipe(user, shotsRoute[1], (r) => {
-        const added = images.map((dataUrl) => writeJpeg(dataUrl, `${r.id}-${crypto.randomUUID().slice(0, 8)}.jpg`));
+      const updated = await changeRecipe(user, shotsRoute[1], async (r) => {
+        const added = await Promise.all(images.map((dataUrl) => saveJpeg(user, dataUrl, `${r.id}-${crypto.randomUUID().slice(0, 8)}.jpg`)));
         if (r.no_cover) {
           r.cover = added[0];
           r.no_cover = false;
@@ -806,11 +845,11 @@ const server = http.createServer(async (req, res) => {
     const shotRoute = url.pathname.match(/^\/api\/recipes\/([\w-]+)\/screenshots\/([\w.-]+)$/);
     if (req.method === "DELETE" && shotRoute) {
       const file = shotRoute[2];
-      const updated = await changeRecipe(user, shotRoute[1], (r) => {
+      const updated = await changeRecipe(user, shotRoute[1], async (r) => {
         if (!r.images.includes(file)) throw new UserError("That screenshot isn't part of this recipe.", 404);
         r.images = r.images.filter((f) => f !== file);
         if (r.cover === file) r.cover = ""; // it was the cover: fall back to the next screenshot
-        fs.rmSync(path.join(IMAGE_DIR, file), { force: true });
+        await deletePhoto(user, file);
       });
       console.log(`[screenshots] "${updated.title}" removed ${file} (now ${updated.images.length})`);
       return sendJson(res, 200, updated);
