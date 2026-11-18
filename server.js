@@ -7,6 +7,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { searchRecipe } = require("./search.js");
+const { shortTime } = require("./recipe-time.js");
 
 // ---- Settings (secrets come from .env, never from this file) ----
 try {
@@ -509,7 +510,7 @@ const server = http.createServer(async (req, res) => {
       // match is "best" (title, tags, chapter, or source) or "also" (only in ingredients or notes)
       const results = loadRecipes()
         .filter((r) => !status || r.status === status)
-        .map((r) => ({ ...r, match: searchRecipe(r, q) }))
+        .map((r) => ({ ...r, match: searchRecipe(r, q), short_time: shortTime(r.total_time) }))
         .filter((r) => r.match)
         .sort((a, b) => b.created_at.localeCompare(a.created_at));
       return sendJson(res, 200, results);
@@ -569,15 +570,19 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 201, allChapters().map(({ name: n, emoji: e }) => ({ name: n, emoji: e })));
     }
 
-    // Move a saved recipe to another chapter, or switch "want to try" / "favorite"
+    // Move a saved recipe to another chapter, switch "want to try" / "favorite", or fix its total time
     const recipeRoute = url.pathname.match(/^\/api\/recipes\/([\w-]+)$/);
     if (req.method === "PATCH" && recipeRoute) {
-      const { chapter, status } = await readJson(req);
+      const { chapter, status, total_time } = await readJson(req);
       if (chapter !== undefined && !chapterNames().includes(chapter)) return sendJson(res, 400, { error: "Unknown chapter." });
       if (status !== undefined && !STATUSES.includes(status)) return sendJson(res, 400, { error: "Unknown status." });
+      if (total_time !== undefined && (typeof total_time !== "string" || total_time.length > 40)) {
+        return sendJson(res, 400, { error: "The time must be text, 40 characters or less." });
+      }
       const updated = changeRecipe(recipeRoute[1], (r) => {
         if (chapter !== undefined) r.chapter = chapter;
         if (status !== undefined) r.status = status;
+        if (total_time !== undefined) r.total_time = total_time.trim();
       });
       console.log(`[update] "${updated.title}" -> ${updated.chapter || "Unsorted"}, ${updated.status}`);
       return sendJson(res, 200, updated);
