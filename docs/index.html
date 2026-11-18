@@ -172,8 +172,8 @@
     <section id="live-demo">
       <h2>Product Showcase (Prototype / Live App / 2-Min Video)</h2>
       <p>
-        <strong>Current Status:</strong> Build 2: smallest working version (runs on my laptop, with real AI calls)<br />
-        <strong>Demo:</strong> Screenshots of the Build 2 app running on my laptop. The live cloud app link comes in Build 5.
+        <strong>Current Status:</strong> Build 3: live on the internet at <a href="https://aeb10033-fallproject.onrender.com">aeb10033-fallproject.onrender.com</a> (invite-only: sign-in needed)<br />
+        <strong>Demo:</strong> Screenshots of the app (taken in Build 2). Each account has its own private recipes and photos. See the <a href="https://github.com/building-with-ai-f26/aeb10033-fallproject/blob/main/SECURITY.md">security audit</a>.
       </p>
       <img class="showcase-img" src="build2abovethefold.png" alt="Scrapbook Kitchen's Add a recipe step: a drop zone for screenshots, a box for a recipe link, and a box for pasted recipe text" />
       <p class="meta">1. Add a recipe from screenshots, a website link, or pasted text. AI reads it into a draft I review before saving.</p>
@@ -209,20 +209,22 @@
       <h3>3. How It Works Under the Hood & Riskiest Assumption (Week 2+)</h3>
       <p><strong>Riskiest Assumption:</strong> The AI misreads or invents part of a recipe from a messy source (handwriting, 3–5 overlapping screenshots, or an ad-filled web page), and I don't catch it before I cook. A wrong amount of flour or a missing step ruins the dish and my trust in the app.</p>
       <p><strong>How this build tests it:</strong> I run the full workflow on my own real, messy recipes: a handwritten family card, a social media caption split across screenshots, ad-heavy recipe websites, and pasted text from sites that block apps. The AI is told to copy exactly and never guess silently. Anything it's unsure of goes on a "Double-check these" list, and every recipe goes through a review step where I fix it before saving. In Build 1, it got every ingredient and step right on the three recipes I checked line by line. Build 4 will measure this more formally.</p>
-      <p><strong>Simple Architecture:</strong> [Screenshots, a link, or pasted text in my browser] → [My local Node.js server] → [OpenRouter → Claude Haiku 5.5] → [A structured recipe I review, then save]</p>
+      <p><strong>Simple Architecture (v3):</strong> [Screenshots, a link, or pasted text in my browser or phone] → [Node.js server on Render] → [OpenRouter → Claude Haiku 5.5] → [A structured recipe I review] → [Saved to my account in Supabase: recipes in the database, photos in private storage]</p>
       <ul>
         <li><strong>The page</strong> (<code>public/index.html</code>, plain HTML and JavaScript): shrinks screenshots before upload, shows the draft recipe for review, and shows saved recipes as a cookbook board with chapters, cover photos, and search.</li>
         <li><strong>The server</strong> (<code>server.js</code>, Node.js with no installed packages): for a link, it downloads the page and uses the recipe data the website includes for search engines, or the page's text. It sends the screenshots or text to the AI with instructions and a fixed recipe format, then saves what I approve.</li>
         <li><strong>The AI</strong> (Claude Haiku 5.5 through OpenRouter): returns the title, ingredients, steps, source, tags, chapter, and a list of anything it's unsure of. The API key stays in a private <code>.env</code> file and never goes to GitHub.</li>
-        <li><strong>Storage:</strong> recipes in <code>data/recipes.json</code>, and photos and screenshots in <code>data/images/</code>, on my laptop only.</li>
-        <li><strong>Analytics:</strong> PostHog on this page and in the local app records pageviews, clicks, session replays (anything typed is hidden), and three events: recipe read, recipe saved, and search. They include counts, never recipe text.</li>
+        <li><strong>Hosting (new in v3):</strong> Render's free plan runs <code>server.js</code> and redeploys every time I merge to <code>main</code>. Keys live in Render's settings, never in the code. It sleeps when idle, so the first visit can take 30–60 seconds. I picked Render because the app needs a server (it reads links and calls the AI with a secret key) and no packages to install.</li>
+        <li><strong>Database & photos (new in v3):</strong> Supabase holds each account's recipes and chapters in a database and its photos in a private storage bucket. Before, everything was files on my laptop, and free hosts wipe files on every restart. I picked Supabase over Neon because it also does sign-in and photo storage, and works with plain web requests, so the app still needs no packages.</li>
+        <li><strong>Sign-in & security (new in v3):</strong> Invite-only email + password accounts. I add people myself, which answers my pod's "multiple users" feedback. Row Level Security in the database and a per-account photo folder mean an account can only ever see its own recipes. Each account can do 30 AI reads a day, so the AI bill can't run away. Full details are in <a href="https://github.com/building-with-ai-f26/aeb10033-fallproject/blob/main/SECURITY.md"><code>SECURITY.md</code></a>.</li>
+        <li><strong>Analytics:</strong> PostHog on this page and in the app records pageviews, clicks, session replays (anything typed is hidden, and so is the signed-in email), and events for recipe read, recipe saved, search, and sign-in. They include counts, never recipe text. Live-site events are labeled <code>live_app</code>, separate from my laptop's <code>local_app</code>.</li>
       </ul>
 
       <h3>4. Unit Economics & Analytics Snapshot (Updated Weekly)</h3>
       <div class="grid-2">
         <div class="stat-box">
           <div class="stat-label">Cumulative Build Spend</div>
-          <div class="stat-value">$10.08</div>
+          <div class="stat-value">$15.59</div>
         </div>
         <div class="stat-box">
           <div class="stat-label">Est. Cost Per User Run</div>
@@ -280,13 +282,23 @@
             <ul>
               <li><strong>Show how long a recipe takes on the board:</strong> doing it now. Each card shows the time under the title, like "⏱ 45 min," and I can type in or fix a time from the recipe pop-up.</li>
               <li><strong>Drag recipes into a weekly meal plan for cooking and prepping:</strong> the biggest idea, but meal planning is a non-goal in my PRD. I'll decide after the core workflow is solid whether to move it into scope.</li>
-              <li><strong>Accounts, so each person has their own recipes:</strong> waiting until Build 5. The app only runs on my laptop for now, so accounts matter once it's online.</li>
+              <li><strong>Accounts, so each person has their own recipes:</strong> I first planned this for Build 5, but going live in Build 3 made it necessary now. Done: invite-only sign-in, with each account's recipes and photos private.</li>
               <li><strong>Choose your own colors and design:</strong> later. It doesn't help with my biggest risk, the AI misreading recipes. A few color themes would be a cheap first version.</li>
             </ul>
           </li>
-          <li><strong>What shipped:</strong> [End-to-end workflow working with real inputs + PostHog funnel events]</li>
-          <li><strong>What broke / changed in PRD:</strong> [Fill in]</li>
-          <li><strong>Cost & time this week:</strong> $[0.00] · [0] hours</li>
+          <li><strong>What shipped:</strong> The app is live at <a href="https://aeb10033-fallproject.onrender.com">aeb10033-fallproject.onrender.com</a> and works from my phone (Beginner lane: Render + Supabase).
+            <ul>
+              <li>recipe times on the board cards, from pod feedback (PR #12, Nov 18);</li>
+              <li>invite-only sign-in, Render setup, and a daily AI limit per account (PR #13);</li>
+              <li>recipes and chapters moved into the Supabase database, one set per account, and my 24 recipes copied over (PR #14);</li>
+              <li>photos moved into private Supabase storage (PR #15);</li>
+              <li>a security audit in <code>SECURITY.md</code>, protection against links to private addresses, the AI model locked on the server, a two-account lock test, and <code>AGENTS.md</code> Shipping and Ask Me First sections (PR #16).</li>
+            </ul>
+          </li>
+          <li><strong>Things learned with AI:</strong> Going live is mostly about what <em>not</em> to expose. The agent explained why my API key would be at risk on a public URL, and why the database should enforce who sees what (Row Level Security) instead of trusting my own code. The surprise: my own lock test failed the first time. A photo still showed for the second account because the browser had saved a copy, even though the server was refusing correctly. Testing like an attacker found something the code review hadn't.</li>
+          <li><strong>What broke / changed in PRD:</strong> Supabase wouldn't let me create a project until I made my own organization. The Supabase URL I copied ended in <code>/rest/v1/</code>, which broke sign-in until the app learned to strip it. An old copy of the app was still running on my laptop, so my first sign-in said "Not found." Render named my service after the repo, so my URL isn't <code>scrapbookkitchen</code>. PRD v3 adds hosting, a database, accounts, and security, and accounts moved from "later" into scope.</li>
+          <li><strong>Still to do this week:</strong> one more commit on a separate day (mobile-friendly fixes and pod feedback).</li>
+          <li><strong>Cost & time this week:</strong> $5.51 ($5.50 Claude Code, my share of a $22/month Pro plan, + about $0.01 OpenRouter) · 3 hours</li>
         </ul>
       </div>
 
