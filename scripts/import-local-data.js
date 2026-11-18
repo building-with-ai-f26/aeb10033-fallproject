@@ -1,5 +1,5 @@
-// One-time copy of your old local recipes (data/recipes.json) and chapters (data/chapters.json)
-// into your Supabase account, so they show up after signing in.
+// One-time copy of your old local recipes (data/recipes.json), chapters (data/chapters.json),
+// and photos (data/images) into your Supabase account, so they show up after signing in.
 //
 // Run: node scripts/import-local-data.js
 //
@@ -7,8 +7,8 @@
 // - It signs in as you (asks for your email and password; the password isn't shown or saved),
 //   so the lock rules put every recipe in YOUR account.
 // - It shows what it will add and waits for you to type "yes".
-// - Safe to run twice: recipes and chapters already in your account are skipped.
-// - Photos stay in data/images for now; recipes keep their photo file names.
+// - Safe to run twice: recipes, chapters, and photos already in your account are skipped.
+// - Only photos that your account's recipes use are uploaded, into your own private folder.
 
 const fs = require("node:fs");
 const path = require("node:path");
@@ -59,22 +59,37 @@ async function main() {
   const recipes = readLocal("recipes.json");
   const chapters = readLocal("chapters.json");
   console.log(`Found ${recipes.length} recipes and ${chapters.length} added chapter(s) on this computer.\n`);
+  const IMAGE_DIR = path.join(DATA_DIR, "images");
 
   const email = (await ask("Your Scrapbook Kitchen email: ")).trim();
   const password = await ask("Your password (hidden): ", true);
   const session = await call("/auth/v1/token?grant_type=password", { method: "POST", body: { email, password } })
     .catch(() => { throw new Error("Couldn't sign in. Check the email and password."); });
   const token = session.access_token;
+  const userId = session.user.id;
 
   // What's already in the account, so running this twice doesn't add copies
-  const haveIds = new Set((await call("/rest/v1/recipes?select=id", { token })).map((r) => r.id));
+  const accountRecipes = (await call("/rest/v1/recipes?select=data", { token })).map((row) => row.data);
+  const haveIds = new Set(accountRecipes.map((r) => r.id));
   const haveChapters = new Set((await call("/rest/v1/chapters?select=name", { token })).map((c) => c.name.toLowerCase()));
   const newRecipes = recipes.filter((r) => !haveIds.has(r.id));
   const newChapters = chapters.filter((c) => !haveChapters.has(c.name.toLowerCase()));
 
-  console.log(`\nWill add ${newRecipes.length} recipe(s) and ${newChapters.length} chapter(s) to ${email}'s account.`);
+  // Photos: every file named by a recipe in the account (or about to be), screenshots + cover,
+  // that's on this computer but not yet uploaded
+  const listPhotos = async () => (await call("/storage/v1/object/list/photos", {
+    method: "POST", token, body: { prefix: userId, limit: 10000 },
+  })).map((f) => f.name);
+  const havePhotos = new Set(await listPhotos());
+  const wanted = [...new Set([...accountRecipes, ...newRecipes].flatMap((r) => [...(r.images || []), r.cover].filter(Boolean)))];
+  const notHere = wanted.filter((name) => !fs.existsSync(path.join(IMAGE_DIR, name)));
+  const newPhotos = wanted.filter((name) => !havePhotos.has(name) && !notHere.includes(name));
+
+  console.log(`\nWill add ${newRecipes.length} recipe(s), ${newChapters.length} chapter(s), and ${newPhotos.length} photo(s) to ${email}'s account.`);
   if (recipes.length !== newRecipes.length) console.log(`(${recipes.length - newRecipes.length} recipe(s) are already there and will be skipped.)`);
-  if (!newRecipes.length && !newChapters.length) return console.log("Nothing to do.");
+  if (wanted.length - newPhotos.length - notHere.length) console.log(`(${wanted.length - newPhotos.length - notHere.length} photo(s) are already there and will be skipped.)`);
+  if (notHere.length) console.log(`(${notHere.length} photo(s) named by recipes aren't in data/images, so they can't be copied.)`);
+  if (!newRecipes.length && !newChapters.length && !newPhotos.length) return console.log("Nothing to do.");
   if ((await ask('Type "yes" to continue: ')).trim().toLowerCase() !== "yes") return console.log("Stopped. Nothing was changed.");
 
   // Chapters first, so recipes in an added chapter (like Soups) have their chapter.
@@ -87,11 +102,28 @@ async function main() {
       body: newRecipes.map((r) => ({ id: r.id, data: r, created_at: r.created_at || new Date().toISOString() })) });
   }
 
-  // Check: every local recipe is now in the account
+  // Photos go one at a time (raw image bytes, not JSON)
+  const types = { ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp", ".gif": "image/gif", ".avif": "image/avif" };
+  for (const [i, name] of newPhotos.entries()) {
+    const res = await fetch(`${SUPABASE_URL}/storage/v1/object/photos/${userId}/${name}`, {
+      method: "POST",
+      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${token}`, "Content-Type": types[path.extname(name).toLowerCase()] || "image/jpeg" },
+      body: fs.readFileSync(path.join(IMAGE_DIR, name)),
+    });
+    if (!res.ok) throw new Error(`Uploading ${name} failed (${res.status}): ${(await res.text()).slice(0, 200)}`);
+    process.stdout.write(`\rUploaded ${i + 1} of ${newPhotos.length} photos`);
+  }
+  if (newPhotos.length) process.stdout.write("\n");
+
+  // Check: every local recipe and every available photo is now in the account
   const nowIds = new Set((await call("/rest/v1/recipes?select=id", { token })).map((r) => r.id));
   const missing = recipes.filter((r) => !nowIds.has(r.id));
+  // (recipes saved after the first import are in the account, not in data/recipes.json; that's fine)
   console.log(`\nDone. Your account now has ${nowIds.size} recipe(s).`);
   console.log(missing.length ? `WARNING: ${missing.length} local recipe(s) are missing from the account.` : `All ${recipes.length} local recipes are in your account.`);
+  const nowPhotos = new Set(await listPhotos());
+  const missingPhotos = wanted.filter((name) => !notHere.includes(name) && !nowPhotos.has(name));
+  console.log(missingPhotos.length ? `WARNING: ${missingPhotos.length} photo(s) are missing from the account.` : `All ${wanted.length - notHere.length} photos are in your account.`);
 }
 
 main().catch((err) => {
