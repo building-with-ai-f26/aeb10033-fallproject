@@ -294,6 +294,7 @@
     .pin-body { display: block; padding: 10px 12px 12px; }
     .pin-title { display: block; margin: 0 0 6px; font-family: var(--hand); font-size: 25px; font-weight: 700; line-height: 1.1; }
     .pin .badge { margin-left: 0; }
+    .pin-time { display: block; margin: 0 0 6px; font-size: 13.5px; font-weight: 700; color: var(--muted); }
     .pin .meta { display: block; margin-top: 4px; font-size: 12.5px; }
 
     /* ---------- Recipe pop-up ---------- */
@@ -937,6 +938,7 @@
         ${cover}
         <span class="pin-body">
           <span class="pin-title">${esc(r.title)}</span>
+          ${r.short_time ? `<span class="pin-time">⏱ ${esc(r.short_time)}</span>` : ""}
           <span class="badge ${r.status}">${statusLabel[r.status]}</span>
           ${r.source_name ? `<span class="meta">From ${esc(r.source_name)}</span>` : ""}
         </span>
@@ -977,6 +979,7 @@
             <option value="want_to_try" ${r.status === "want_to_try" ? "selected" : ""}>★ Want to try</option>
             <option value="favorite" ${r.status === "favorite" ? "selected" : ""}>♥ Favorite</option>
           </select></div>
+          <div><label for="d-time">Total time</label><input type="text" id="d-time" data-id="${rid}" maxlength="40" placeholder="like 45 min" value="${esc(r.total_time)}" /></div>
         </div>
         <h4>Ingredients</h4>
         ${r.ingredient_groups.map((g) => `${g.name ? `<div class="group-name">${esc(g.name)}</div>` : ""}<ul>${g.items.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>`).join("")}
@@ -1026,9 +1029,11 @@
       }
     }
 
-    // Save a chapter or status change from the pop-up.
+    // Save a chapter, status, or time change from the pop-up.
     function updateRecipe(id, changes) {
-      const message = changes.chapter
+      const message = changes.total_time !== undefined
+        ? (changes.total_time.trim() ? "Time saved ⏱" : "Time removed")
+        : changes.chapter
         ? `Moved to ${chapterInfo(changes.chapter).name} ${chapterInfo(changes.chapter).emoji}`
         : changes.status === "favorite" ? "Added to favorites ♥" : "Marked want to try ★";
       return sendChange(id, "PATCH", "", changes, message);
@@ -1163,6 +1168,7 @@
       }
       if (e.target.id === "d-chapter") updateRecipe(e.target.dataset.id, { chapter: e.target.value });
       if (e.target.id === "d-status") updateRecipe(e.target.dataset.id, { status: e.target.value });
+      if (e.target.id === "d-time") updateRecipe(e.target.dataset.id, { total_time: e.target.value });
 
       // Adding photos: they're shrunk like screenshots before uploading.
       if (e.target.id === "d-shot-files") {
