@@ -41,24 +41,14 @@ if (!SUPABASE_URL || !SUPABASE_KEY) {
   process.exit(1);
 }
 
-// ---- Storage: one JSON file plus a folder of images, both git-ignored ----
+// ---- Storage: recipes and chapters live in Supabase (see the Database section below).
+// Photos are still files in data/images until they move to Supabase Storage.
 const DATA_DIR = path.join(__dirname, "data");
 const IMAGE_DIR = path.join(DATA_DIR, "images");
-const RECIPES_FILE = path.join(DATA_DIR, "recipes.json");
 fs.mkdirSync(IMAGE_DIR, { recursive: true });
 
-function loadRecipes() {
-  if (!fs.existsSync(RECIPES_FILE)) return [];
-  // If this file is ever damaged, fail loudly instead of starting over and overwriting it.
-  return JSON.parse(fs.readFileSync(RECIPES_FILE, "utf8"));
-}
-
-function saveRecipes(recipes) {
-  fs.writeFileSync(RECIPES_FILE, JSON.stringify(recipes, null, 2));
-}
-
 // ---- Cookbook chapters: every recipe lives in exactly one ----
-// Built-in chapters are listed here. Chapters you add in the app are saved in data/chapters.json.
+// Built-in chapters are listed here. Chapters you add in the app are saved in the Supabase "chapters" table.
 // The AI and the page both use the combined list.
 const BUILT_IN_CHAPTERS = [
   { name: "Breakfast", emoji: "🥞", hint: "breakfast and brunch foods, like pancakes, eggs, muffins, and donuts" },
@@ -69,21 +59,7 @@ const BUILT_IN_CHAPTERS = [
   { name: "Snacks", emoji: "🥨", hint: "snacks and appetizers" },
   { name: "Drinks", emoji: "🥤", hint: "drinks and smoothies" },
 ];
-const CHAPTERS_FILE = path.join(DATA_DIR, "chapters.json");
 const STATUSES = ["want_to_try", "favorite"];
-
-function loadCustomChapters() {
-  if (!fs.existsSync(CHAPTERS_FILE)) return [];
-  return JSON.parse(fs.readFileSync(CHAPTERS_FILE, "utf8"));
-}
-
-function allChapters() {
-  return [...BUILT_IN_CHAPTERS, ...loadCustomChapters()];
-}
-
-function chapterNames() {
-  return allChapters().map((c) => c.name);
-}
 
 // ---- The AI step: screenshots/text in, structured recipe out ----
 // Built fresh for each recipe, so chapters you add are included.
@@ -349,13 +325,12 @@ async function downloadPhoto(photoUrl, recipeId) {
   }
 }
 
-async function extractRecipe({ images, text, model }) {
+async function extractRecipe({ images, text, model, chapters }) {
   const content = [];
   if (text.trim()) content.push({ type: "text", text });
   if (images.length) content.push({ type: "text", text: `Extract the recipe from these ${images.length} screenshot(s), in order.` });
   for (const url of images) content.push({ type: "image_url", image_url: { url } });
 
-  const chapters = allChapters();
   const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${API_KEY}`, "Content-Type": "application/json" },
@@ -395,7 +370,8 @@ async function extractRecipe({ images, text, model }) {
 }
 
 // Keep only the fields we expect, so edited recipes are always saved in the same shape.
-function cleanRecipe(r) {
+// chapterNames = this person's chapters; anything else becomes "" (Unsorted).
+function cleanRecipe(r, chapterNames) {
   const str = (v) => (typeof v === "string" ? v.trim() : "");
   const list = (v) => (Array.isArray(v) ? v.map(str).filter(Boolean) : []);
   return {
@@ -409,7 +385,7 @@ function cleanRecipe(r) {
       .filter((g) => g.items.length),
     steps: list(r.steps),
     tags: list(r.tags).map((t) => t.toLowerCase()),
-    chapter: chapterNames().includes(r.chapter) ? r.chapter : "", // "" shows as Unsorted
+    chapter: chapterNames.includes(r.chapter) ? r.chapter : "", // "" shows as Unsorted
     notes: str(r.notes),
   };
 }
@@ -453,16 +429,6 @@ function coverFileName(recipeId, ext) {
 // Delete the recipe's separate cover photo file (never one of its screenshots).
 function deleteCoverFile(recipe) {
   if (recipe.cover && !recipe.images.includes(recipe.cover)) fs.rmSync(path.join(IMAGE_DIR, recipe.cover), { force: true });
-}
-
-// Load all recipes, change one, and save. Throws a 404 if the recipe doesn't exist.
-function changeRecipe(id, change) {
-  const all = loadRecipes();
-  const recipe = all.find((r) => r.id === id);
-  if (!recipe) throw new UserError("Recipe not found.", 404);
-  change(recipe);
-  saveRecipes(all);
-  return recipe;
 }
 
 // ---- Routes ----
@@ -546,6 +512,47 @@ async function currentUser(req, res) {
     }
   }
   return null;
+}
+
+// ---- Database: each person's recipes and chapters ----
+// Every call sends the person's own token, so Supabase's lock rules only ever show or change
+// their rows. Even if this code asked for someone else's recipe, the database would refuse.
+async function db(user, apiPath, options = {}) {
+  const r = await supabase(`/rest/v1/${apiPath}`, { ...options, token: user.token });
+  if (!r.ok) throw new Error(`Database error (${r.status}): ${r.data?.message || "unknown"}`);
+  return r.data;
+}
+
+// Each recipe row holds the whole recipe as JSON in "data", the same shape data/recipes.json used.
+async function loadRecipes(user) {
+  const rows = await db(user, "recipes?select=data");
+  return rows.map((row) => row.data);
+}
+
+async function addRecipe(user, recipe) {
+  await db(user, "recipes", { method: "POST", body: { id: recipe.id, data: recipe }, headers: { Prefer: "return=minimal" } });
+}
+
+// Load one recipe, change it, and save it back. Throws a 404 if it doesn't exist or isn't yours.
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+async function changeRecipe(user, id, change) {
+  if (!UUID.test(id)) throw new UserError("Recipe not found.", 404);
+  const rows = await db(user, `recipes?select=data&id=eq.${id}`);
+  if (!rows.length) throw new UserError("Recipe not found.", 404);
+  const recipe = rows[0].data;
+  change(recipe);
+  await db(user, `recipes?id=eq.${id}`, { method: "PATCH", body: { data: recipe }, headers: { Prefer: "return=minimal" } });
+  return recipe;
+}
+
+// Built-in chapters plus the ones this person added, oldest first.
+async function allChapters(user) {
+  const custom = await db(user, "chapters?select=name,emoji&order=created_at");
+  return [...BUILT_IN_CHAPTERS, ...custom];
+}
+
+async function chapterNames(user) {
+  return (await allChapters(user)).map((c) => c.name);
 }
 
 // Count this account's AI reads in the last 24 hours; refuse past the limit, otherwise record one more.
@@ -642,7 +649,8 @@ const server = http.createServer(async (req, res) => {
       }
       if (pasted) parts.push(`Recipe text pasted by the user:\n\n${pasted}`);
       await useAiRead(user);
-      const result = await extractRecipe({ images, text: parts.join("\n\n---\n\n"), model: model || MODEL });
+      const chapters = await allChapters(user);
+      const result = await extractRecipe({ images, text: parts.join("\n\n---\n\n"), model: model || MODEL, chapters });
       if (recipeLink) result.recipe.source_url = recipeLink; // the link you pasted is the source
       return sendJson(res, 200, { ...result, photo_url: photoUrl }); // the photo is downloaded only if you save
     }
@@ -652,7 +660,7 @@ const server = http.createServer(async (req, res) => {
       const q = url.searchParams.get("q") || "";
       const status = url.searchParams.get("status") || "";
       // match is "best" (title, tags, chapter, or source) or "also" (only in ingredients or notes)
-      const results = loadRecipes()
+      const results = (await loadRecipes(user))
         .filter((r) => !status || r.status === status)
         .map((r) => ({ ...r, match: searchRecipe(r, q), short_time: shortTime(r.total_time) }))
         .filter((r) => r.match)
@@ -665,7 +673,7 @@ const server = http.createServer(async (req, res) => {
       // Cover choice: cover_image (a photo you picked), photo_url (the website's photo),
       // no_cover (emoji card), or none of these (first screenshot).
       const { recipe = {}, images = [], photo_url = "", cover_image = "", no_cover = false } = await readJson(req);
-      const clean = cleanRecipe(recipe);
+      const clean = cleanRecipe(recipe, await chapterNames(user));
       if (!clean.title) return sendJson(res, 400, { error: "A recipe needs a title." });
       if (!images.every(isJpegDataUrl)) return sendJson(res, 400, { error: "Images must be JPEG data URLs." });
       if (cover_image && !isJpegDataUrl(cover_image)) return sendJson(res, 400, { error: "The cover photo must be a JPEG data URL." });
@@ -685,16 +693,14 @@ const server = http.createServer(async (req, res) => {
         no_cover: Boolean(no_cover) && !cover_image,
         created_at: new Date().toISOString(),
       };
-      const all = loadRecipes();
-      all.push(saved);
-      saveRecipes(all);
+      await addRecipe(user, saved);
       console.log(`[save] "${saved.title}" (${saved.status}, ${imageFiles.length} image(s)${saved.cover ? ", cover photo" : ""})`);
       return sendJson(res, 201, saved);
     }
 
     // The chapter list, so the page shows the same chapters the AI uses
     if (req.method === "GET" && url.pathname === "/api/chapters") {
-      return sendJson(res, 200, allChapters().map(({ name, emoji }) => ({ name, emoji })));
+      return sendJson(res, 200, (await allChapters(user)).map(({ name, emoji }) => ({ name, emoji })));
     }
 
     // Add your own chapter (like Soups). Returns the updated chapter list.
@@ -702,28 +708,26 @@ const server = http.createServer(async (req, res) => {
       const { name = "", emoji = "" } = await readJson(req);
       const cleanName = String(name).trim().replace(/\s+/g, " ");
       if (!cleanName || cleanName.length > 30) return sendJson(res, 400, { error: "A chapter name needs 1 to 30 characters." });
-      if (chapterNames().some((n) => n.toLowerCase() === cleanName.toLowerCase())) {
+      if ((await chapterNames(user)).some((n) => n.toLowerCase() === cleanName.toLowerCase())) {
         return sendJson(res, 400, { error: `You already have a "${cleanName}" chapter.` });
       }
       // Keep just the first emoji (or character) typed; default to a notebook.
       const firstSymbol = [...new Intl.Segmenter().segment(String(emoji).trim())][0]?.segment;
-      const custom = loadCustomChapters();
-      custom.push({ name: cleanName, emoji: firstSymbol || "📒" });
-      fs.writeFileSync(CHAPTERS_FILE, JSON.stringify(custom, null, 2));
+      await db(user, "chapters", { method: "POST", body: { name: cleanName, emoji: firstSymbol || "📒" }, headers: { Prefer: "return=minimal" } });
       console.log(`[chapter] added "${cleanName}"`);
-      return sendJson(res, 201, allChapters().map(({ name: n, emoji: e }) => ({ name: n, emoji: e })));
+      return sendJson(res, 201, (await allChapters(user)).map(({ name: n, emoji: e }) => ({ name: n, emoji: e })));
     }
 
     // Move a saved recipe to another chapter, switch "want to try" / "favorite", or fix its total time
     const recipeRoute = url.pathname.match(/^\/api\/recipes\/([\w-]+)$/);
     if (req.method === "PATCH" && recipeRoute) {
       const { chapter, status, total_time } = await readJson(req);
-      if (chapter !== undefined && !chapterNames().includes(chapter)) return sendJson(res, 400, { error: "Unknown chapter." });
+      if (chapter !== undefined && !(await chapterNames(user)).includes(chapter)) return sendJson(res, 400, { error: "Unknown chapter." });
       if (status !== undefined && !STATUSES.includes(status)) return sendJson(res, 400, { error: "Unknown status." });
       if (total_time !== undefined && (typeof total_time !== "string" || total_time.length > 40)) {
         return sendJson(res, 400, { error: "The time must be text, 40 characters or less." });
       }
-      const updated = changeRecipe(recipeRoute[1], (r) => {
+      const updated = await changeRecipe(user, recipeRoute[1], (r) => {
         if (chapter !== undefined) r.chapter = chapter;
         if (status !== undefined) r.status = status;
         if (total_time !== undefined) r.total_time = total_time.trim();
@@ -750,7 +754,7 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 400, { error: "Send an image, a screenshot, a photo_url, or none: true." });
       }
 
-      const updated = changeRecipe(coverRoute[1], (r) => {
+      const updated = await changeRecipe(user, coverRoute[1], (r) => {
         if (screenshot !== undefined && !r.images.includes(screenshot)) throw new UserError("That screenshot isn't part of this recipe.");
         if (image !== undefined) newCover = writeJpeg(image, coverFileName(r.id, ".jpg"));
         if (screenshot !== undefined) newCover = screenshot;
@@ -770,7 +774,7 @@ const server = http.createServer(async (req, res) => {
 
     // Remove a saved recipe's separate cover photo; the cover goes back to its first screenshot
     if (req.method === "DELETE" && coverRoute) {
-      const updated = changeRecipe(coverRoute[1], (r) => {
+      const updated = await changeRecipe(user, coverRoute[1], (r) => {
         deleteCoverFile(r);
         r.cover = "";
         r.cover_cropped = false;
@@ -786,7 +790,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && shotsRoute) {
       const { images = [] } = await readJson(req);
       if (!images.length || !images.every(isJpegDataUrl)) return sendJson(res, 400, { error: "Add at least one JPEG photo." });
-      const updated = changeRecipe(shotsRoute[1], (r) => {
+      const updated = await changeRecipe(user, shotsRoute[1], (r) => {
         const added = images.map((dataUrl) => writeJpeg(dataUrl, `${r.id}-${crypto.randomUUID().slice(0, 8)}.jpg`));
         if (r.no_cover) {
           r.cover = added[0];
@@ -802,7 +806,7 @@ const server = http.createServer(async (req, res) => {
     const shotRoute = url.pathname.match(/^\/api\/recipes\/([\w-]+)\/screenshots\/([\w.-]+)$/);
     if (req.method === "DELETE" && shotRoute) {
       const file = shotRoute[2];
-      const updated = changeRecipe(shotRoute[1], (r) => {
+      const updated = await changeRecipe(user, shotRoute[1], (r) => {
         if (!r.images.includes(file)) throw new UserError("That screenshot isn't part of this recipe.", 404);
         r.images = r.images.filter((f) => f !== file);
         if (r.cover === file) r.cover = ""; // it was the cover: fall back to the next screenshot

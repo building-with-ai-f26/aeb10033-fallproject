@@ -5,7 +5,7 @@
 ## 1. Project Overview
 - **What this repo builds:** Scrapbook Kitchen, a personal recipe saver. You upload screenshots or photos of a recipe (social media posts, websites, cookbooks, handwritten cards) or paste text; AI turns them into a clean recipe you review, save as "want to try" or "favorite," and search later.
 - **Primary user & core workflow:** See the living PRD in `docs/index.html`.
-- **Tech stack:** Node.js 22+ using only built-in modules (no npm packages) / one HTML page with plain JavaScript / OpenRouter API (default model `anthropic/claude-haiku-5.5`) / recipes stored in `data/recipes.json` and screenshots in `data/images/` (both git-ignored).
+- **Tech stack:** Node.js 22+ using only built-in modules (no npm packages) / one HTML page with plain JavaScript / OpenRouter API (default model `anthropic/claude-haiku-5.5`) / Supabase (accounts, recipes and chapters tables with Row Level Security, called with plain `fetch`) / screenshots in `data/images/` (git-ignored, moving to Supabase Storage) / hosted on Render.
 - **Main files:** `server.js` (server, AI prompt, link reading, save, photos), `search.js` (search matching), `recipe-time.js` (short times on cards), and `public/index.html` (the page).
 
 ### Project structure
@@ -17,10 +17,11 @@ public/index.html    The whole app page (HTML, CSS, plain JavaScript), including
 docs/index.html      Product Page on GitHub Pages: PRD, build log, PostHog snippet
 docs/*.png           Screenshots shown on the Product Page
 tests/               Automated tests (node --test) and verification notes
+supabase/schema.sql  Supabase tables, photo bucket, and Row Level Security rules (run in the SQL Editor)
+scripts/             One-time scripts (ask before running: they change saved data)
 data/                Private, git-ignored, created on first run:
-  recipes.json         saved recipes
-  chapters.json        chapters you added (built-in chapters live in server.js)
   images/              screenshots, website photos, uploaded photos, and cropped covers
+  recipes.json         old local recipes (before Supabase); kept as a backup
 .env                 Private keys (git-ignored); copy from .env.example
 ```
 
