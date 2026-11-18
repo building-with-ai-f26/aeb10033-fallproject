@@ -51,6 +51,15 @@
     }
     .tagline { margin: 0 auto; max-width: 480px; color: var(--muted); font-weight: 600; }
 
+    /* ---------- Sign-in: until we know who you are, only the sign-in card shows ---------- */
+    body.auth-unknown section.card,
+    body.signed-out section.card:not(#signin) { display: none; }
+    body.signed-in #signin { display: none; }
+    #signin { --tape: #f5d58a; max-width: 420px; margin-left: auto; margin-right: auto; }
+    .signin-error { color: var(--tomato-dark); font-weight: 700; min-height: 1.5em; margin: 10px 0 0; }
+    .account { margin: 10px 0 0; color: var(--muted); font-size: 14px; }
+    .account button { background: none; border: none; padding: 0; font: inherit; font-weight: 700; color: var(--tomato-dark); text-decoration: underline; cursor: pointer; }
+
     /* ---------- Paper cards with washi tape ---------- */
     section.card {
       position: relative;
@@ -107,7 +116,7 @@
     /* ---------- Form controls ---------- */
     label { display: block; font-weight: 700; font-size: 14px; margin: 14px 0 5px; }
     .hint { font-weight: 400; color: var(--muted); }
-    input[type=text], input[type=url], input[type=search], textarea, select {
+    input[type=text], input[type=url], input[type=search], input[type=email], input[type=password], textarea, select {
       width: 100%;
       padding: 10px 12px;
       border: 1.5px solid var(--line);
@@ -431,13 +440,29 @@
     }
   </script>
 </head>
-<body>
+<body class="auth-unknown">
   <div class="container">
     <header>
       <div class="logo" aria-hidden="true">🍋📖🍝</div>
       <h1>Scrapbook Kitchen</h1>
       <p class="tagline">Your recipe scrapbook, from screenshots, cookbooks, and everything in between.</p>
+      <!-- ph-no-capture keeps your email out of PostHog session replays -->
+      <p class="account ph-no-capture" id="account" hidden>Signed in as <span id="who"></span> · <button type="button" id="signout-btn">Sign out</button></p>
     </header>
+
+    <!-- SIGN IN (accounts are invite-only, added in the Supabase dashboard) -->
+    <section id="signin" class="card">
+      <h2>👋 Sign in</h2>
+      <form id="signin-form">
+        <label for="signin-email">Email</label>
+        <input id="signin-email" type="email" autocomplete="email" required />
+        <label for="signin-password">Password</label>
+        <input id="signin-password" type="password" autocomplete="current-password" required />
+        <p class="signin-error" id="signin-error" role="alert"></p>
+        <button id="signin-btn" class="btn" type="submit">Sign in</button>
+      </form>
+      <p class="hint">Scrapbook Kitchen is invite-only for now.</p>
+    </section>
 
     <!-- 1. ADD -->
     <section id="add" class="card">
@@ -1261,7 +1286,54 @@
       resolveNewChapter = null;
     });
 
+    // ---- Sign-in ----
+    // If any request comes back "Please sign in" (401), your session ended: show the sign-in card.
+    const plainFetch = window.fetch.bind(window);
+    window.fetch = async (...args) => {
+      const res = await plainFetch(...args);
+      if (res.status === 401 && args[0] !== "/api/login") showSignIn();
+      return res;
+    };
+
+    function showSignIn() {
+      document.body.className = "signed-out";
+      $("account").hidden = true;
+    }
+
+    $("signin-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      $("signin-error").textContent = "";
+      $("signin-btn").disabled = true;
+      try {
+        const res = await fetch("/api/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: $("signin-email").value, password: $("signin-password").value }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Couldn't sign in.");
+        $("signin-password").value = "";
+        track("signed_in");
+        start();
+      } catch (err) {
+        $("signin-error").textContent = err.message;
+      } finally {
+        $("signin-btn").disabled = false;
+      }
+    });
+
+    $("signout-btn").addEventListener("click", async () => {
+      await fetch("/api/logout", { method: "POST" });
+      if (window.posthog && window.posthog.reset) window.posthog.reset();
+      location.reload();
+    });
+
     async function start() {
+      const me = await fetch("/api/me");
+      if (!me.ok) return showSignIn();
+      $("who").textContent = (await me.json()).email;
+      $("account").hidden = false;
+      document.body.className = "signed-in";
       chapters = await (await fetch("/api/chapters")).json();
       fillChapterSelect(chapters[0].name);
       loadRecipes();

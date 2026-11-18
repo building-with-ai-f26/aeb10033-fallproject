@@ -18,6 +18,15 @@ try {
 const API_KEY = process.env.OPENROUTER_API_KEY;
 const MODEL = process.env.OPENROUTER_MODEL || "anthropic/claude-haiku-5.5";
 const PORT = Number(process.env.PORT) || 3000;
+// Locally only this computer can open the app (127.0.0.1). Render sets HOST=0.0.0.0 so the internet can reach it.
+const HOST = process.env.HOST || "127.0.0.1";
+// Supabase holds accounts (and soon recipes and photos). The publishable key is meant to be public;
+// what protects data is each person's sign-in token plus the lock rules in supabase/schema.sql.
+// The dashboard sometimes shows the URL ending in /rest/v1/; only the https://<project>.supabase.co part is needed.
+const SUPABASE_URL = (process.env.SUPABASE_URL || "").replace(/\/+$/, "").replace(/\/rest\/v1$/, "");
+const SUPABASE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY || "";
+// Most AI recipe reads one account can do in 24 hours, so a leaked password can't run up the bill.
+const DAILY_AI_LIMIT = Number(process.env.DAILY_AI_LIMIT) || 30;
 const MAX_UPLOAD_BYTES = 40 * 1024 * 1024; // 40 MB, plenty for ~10 resized screenshots
 // Optional analytics. The PostHog project key (phc_...) is public, but it lives in .env so it's set in one place.
 const POSTHOG_KEY = process.env.POSTHOG_KEY || "";
@@ -25,6 +34,10 @@ const POSTHOG_HOST = process.env.POSTHOG_HOST || "https://us.i.posthog.com";
 
 if (!API_KEY || API_KEY.includes("replace-with-your-key")) {
   console.error("Missing OPENROUTER_API_KEY. Copy .env.example to .env and add your OpenRouter key.");
+  process.exit(1);
+}
+if (!SUPABASE_URL || !SUPABASE_KEY) {
+  console.error("Missing SUPABASE_URL or SUPABASE_PUBLISHABLE_KEY. Add them to .env (see .env.example).");
   process.exit(1);
 }
 
@@ -453,9 +466,139 @@ function changeRecipe(id, change) {
 }
 
 // ---- Routes ----
+// ---- Supabase: plain fetch calls to its web API (no npm package needed) ----
+// token = the signed-in person's access token. Supabase checks it and applies the lock rules.
+async function supabase(apiPath, { method = "GET", token, body, headers = {} } = {}) {
+  const res = await fetch(SUPABASE_URL + apiPath, {
+    method,
+    headers: {
+      apikey: SUPABASE_KEY,
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...headers,
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    signal: AbortSignal.timeout(15000),
+  });
+  const text = await res.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = text;
+  }
+  return { ok: res.ok, status: res.status, data };
+}
+
+// ---- Sign-in: tokens live in cookies the page's JavaScript can't read (HttpOnly) ----
+// sk_access proves who you are for about an hour; sk_refresh gets a new one for up to 30 days.
+const REFRESH_SECONDS = 60 * 60 * 24 * 30;
+
+function readCookies(req) {
+  const cookies = {};
+  for (const part of (req.headers.cookie || "").split(";")) {
+    const i = part.indexOf("=");
+    if (i > 0) cookies[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
+  }
+  return cookies;
+}
+
+// Secure = only sent over https. Render serves https; your Mac (http://localhost) doesn't.
+function cookie(req, name, value, maxAge) {
+  const secure = req.headers["x-forwarded-proto"] === "https" ? "; Secure" : "";
+  return `${name}=${encodeURIComponent(value)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAge}${secure}`;
+}
+
+function setSessionCookies(req, res, session) {
+  res.setHeader("Set-Cookie", [
+    cookie(req, "sk_access", session.access_token, session.expires_in || 3600),
+    cookie(req, "sk_refresh", session.refresh_token, REFRESH_SECONDS),
+  ]);
+}
+
+function clearSessionCookies(req, res) {
+  res.setHeader("Set-Cookie", [cookie(req, "sk_access", "", 0), cookie(req, "sk_refresh", "", 0)]);
+}
+
+// Asking Supabase "who is this?" on every click would be slow, so remember answers for a minute.
+const knownTokens = new Map(); // access token -> { user, until }
+function remember(user) {
+  if (knownTokens.size > 500) knownTokens.clear();
+  knownTokens.set(user.token, { user, until: Date.now() + 60_000 });
+  return user;
+}
+
+// Who is making this request? Returns { id, email, token }, or null if not signed in.
+async function currentUser(req, res) {
+  const { sk_access: access, sk_refresh: refresh } = readCookies(req);
+  if (access) {
+    const known = knownTokens.get(access);
+    if (known && known.until > Date.now()) return known.user;
+    const r = await supabase("/auth/v1/user", { token: access });
+    if (r.ok) return remember({ id: r.data.id, email: r.data.email, token: access });
+  }
+  if (refresh) {
+    // The hour is up: trade the refresh token for a fresh pair, so you stay signed in.
+    const r = await supabase("/auth/v1/token?grant_type=refresh_token", { method: "POST", body: { refresh_token: refresh } });
+    if (r.ok) {
+      setSessionCookies(req, res, r.data);
+      return remember({ id: r.data.user.id, email: r.data.user.email, token: r.data.access_token });
+    }
+  }
+  return null;
+}
+
+// Count this account's AI reads in the last 24 hours; refuse past the limit, otherwise record one more.
+async function useAiRead(user) {
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const recent = await supabase(`/rest/v1/ai_reads?select=id&created_at=gte.${encodeURIComponent(since)}&limit=${DAILY_AI_LIMIT}`, { token: user.token });
+  if (!recent.ok) throw new Error(`Couldn't check the daily AI limit (${recent.status}).`);
+  if (recent.data.length >= DAILY_AI_LIMIT) {
+    throw new UserError(`You've read ${DAILY_AI_LIMIT} recipes with AI in the last 24 hours, the daily limit. Try again tomorrow.`, 429);
+  }
+  const added = await supabase("/rest/v1/ai_reads", { method: "POST", token: user.token, body: {}, headers: { Prefer: "return=minimal" } });
+  if (!added.ok) throw new Error(`Couldn't record the AI read (${added.status}).`);
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   try {
+    // Render checks this to know the app is running (no passcode, no data)
+    if (req.method === "GET" && url.pathname === "/health") return sendJson(res, 200, { ok: true });
+
+    // Sign in with email + password. Accounts are invite-only: they're added in the Supabase dashboard.
+    if (req.method === "POST" && url.pathname === "/api/login") {
+      const { email = "", password = "" } = await readJson(req);
+      const r = await supabase("/auth/v1/token?grant_type=password", {
+        method: "POST",
+        body: { email: String(email).trim(), password: String(password) },
+      });
+      if (!r.ok) {
+        console.log(`[sign-in] refused (${r.status})`); // never log the email or password
+        const status = r.status === 429 ? 429 : 401;
+        return sendJson(res, status, { error: status === 429 ? "Too many tries. Wait a few minutes and try again." : "Wrong email or password." });
+      }
+      setSessionCookies(req, res, r.data);
+      return sendJson(res, 200, { email: r.data.user.email });
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/logout") {
+      const { sk_access: access } = readCookies(req);
+      if (access) {
+        knownTokens.delete(access);
+        await supabase("/auth/v1/logout", { method: "POST", token: access }).catch(() => {}); // ends the session at Supabase too
+      }
+      clearSessionCookies(req, res);
+      return sendJson(res, 200, { ok: true });
+    }
+
+    // Everything below needs a signed-in person, except the page itself (it shows the sign-in form).
+    const isPage = req.method === "GET" && url.pathname === "/";
+    const user = isPage ? null : await currentUser(req, res);
+    if (!isPage && !user) return sendJson(res, 401, { error: "Please sign in." });
+
+    if (req.method === "GET" && url.pathname === "/api/me") return sendJson(res, 200, { email: user.email });
+
     // The page itself, with the PostHog key and host from .env filled in
     if (req.method === "GET" && url.pathname === "/") {
       const page = fs.readFileSync(path.join(__dirname, "public", "index.html"), "utf8")
@@ -498,6 +641,7 @@ const server = http.createServer(async (req, res) => {
         }
       }
       if (pasted) parts.push(`Recipe text pasted by the user:\n\n${pasted}`);
+      await useAiRead(user);
       const result = await extractRecipe({ images, text: parts.join("\n\n---\n\n"), model: model || MODEL });
       if (recipeLink) result.recipe.source_url = recipeLink; // the link you pasted is the source
       return sendJson(res, 200, { ...result, photo_url: photoUrl }); // the photo is downloaded only if you save
@@ -679,7 +823,6 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-// 127.0.0.1 = only this computer can open the app
-server.listen(PORT, "127.0.0.1", () => {
-  console.log(`Scrapbook Kitchen running at http://localhost:${PORT} (model: ${MODEL}, analytics: ${POSTHOG_KEY ? "on" : "off"})`);
+server.listen(PORT, HOST, () => {
+  console.log(`Scrapbook Kitchen running at http://localhost:${PORT} (model: ${MODEL}, analytics: ${POSTHOG_KEY ? "on" : "off"}, daily AI limit: ${DAILY_AI_LIMIT})`);
 });
