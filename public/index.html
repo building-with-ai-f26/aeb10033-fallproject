@@ -432,7 +432,8 @@
         person_profiles: "identified_only",
         session_recording: { maskAllInputs: true },
       });
-      posthog.register({ app: "local_app" }); // tells these events apart from the Product Page's
+      // Tells these events apart from the Product Page's, and the live site from my laptop
+      posthog.register({ app: location.hostname === "localhost" ? "local_app" : "live_app" });
     }
     // Send a named event. Only the kind of action and counts, never recipe text or search words.
     function track(event, properties) {

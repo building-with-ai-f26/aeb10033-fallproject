@@ -8,6 +8,7 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const { searchRecipe } = require("./search.js");
 const { shortTime } = require("./recipe-time.js");
+const { safeFetch, BlockedLinkError } = require("./safe-fetch.js");
 
 // ---- Settings (secrets come from .env, never from this file) ----
 try {
@@ -145,16 +146,17 @@ async function fetchPage(link) {
 
   let res;
   try {
-    res = await fetch(url, {
+    // safeFetch refuses links to private addresses (see safe-fetch.js)
+    res = await safeFetch(url, {
       headers: {
         // Some recipe sites turn away requests that don't look like a normal browser.
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36",
         Accept: "text/html",
       },
-      redirect: "follow",
       signal: AbortSignal.timeout(15000),
     });
   } catch (err) {
+    if (err instanceof BlockedLinkError) throw new UserError(err.message);
     if (err.name === "TimeoutError") throw new UserError("That website took too long to respond. Try again, or use screenshots.");
     throw new UserError("Couldn't reach that website. Check the link, or use screenshots.");
   }
@@ -292,9 +294,8 @@ async function downloadPhoto(user, photoUrl, recipeId) {
   try {
     const url = new URL(photoUrl);
     if (url.protocol !== "https:" && url.protocol !== "http:") return "";
-    const res = await fetch(url, {
+    const res = await safeFetch(url, {
       headers: { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36" },
-      redirect: "follow",
       signal: AbortSignal.timeout(15000),
     });
     const type = (res.headers.get("content-type") || "").split(";")[0].trim();
@@ -596,6 +597,11 @@ async function useAiRead(user) {
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
+  // Standard protections on every response: don't guess file types (nosniff), don't let other
+  // sites show this app inside a frame (stops "clickjacking"), and don't send our URLs to other sites.
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "same-origin");
   try {
     // Render checks this to know the app is running (no passcode, no data)
     if (req.method === "GET" && url.pathname === "/health") return sendJson(res, 200, { ok: true });
@@ -665,7 +671,8 @@ const server = http.createServer(async (req, res) => {
 
     // Link/screenshots/text -> AI -> recipe draft for review (nothing is saved yet)
     if (req.method === "POST" && url.pathname === "/api/extract") {
-      const { images = [], text = "", link = "", model } = await readJson(req);
+      // The AI model is always the one set in .env (MODEL); a request can't pick a pricier one.
+      const { images = [], text = "", link = "" } = await readJson(req);
       const pasted = String(text).trim();
       const recipeLink = String(link).trim();
       if (!images.every(isJpegDataUrl)) return sendJson(res, 400, { error: "Images must be JPEG data URLs." });
@@ -689,7 +696,7 @@ const server = http.createServer(async (req, res) => {
       if (pasted) parts.push(`Recipe text pasted by the user:\n\n${pasted}`);
       await useAiRead(user);
       const chapters = await allChapters(user);
-      const result = await extractRecipe({ images, text: parts.join("\n\n---\n\n"), model: model || MODEL, chapters });
+      const result = await extractRecipe({ images, text: parts.join("\n\n---\n\n"), model: MODEL, chapters });
       if (recipeLink) result.recipe.source_url = recipeLink; // the link you pasted is the source
       return sendJson(res, 200, { ...result, photo_url: photoUrl }); // the photo is downloaded only if you save
     }
