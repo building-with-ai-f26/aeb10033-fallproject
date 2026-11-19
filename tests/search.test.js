@@ -52,3 +52,10 @@ test("capital letters and punctuation don't matter, and an empty search shows ev
   assert.equal(searchRecipe(chickenPasta, "  GARLIC, chicken! "), "best");
   assert.equal(searchRecipe(tart, ""), "best");
 });
+
+test("your own notes are searched too, as 'also' matches", () => {
+  const tried = recipe({ title: "Banana Bread", my_notes: "Used half the sugar. Came out dry." });
+  assert.equal(searchRecipe(tried, "dry"), "also");
+  assert.equal(searchRecipe(tried, "moist"), null);
+  assert.equal(searchRecipe(recipe({ title: "Old Recipe" }), "dry"), null); // saved before My notes existed
+});

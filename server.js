@@ -57,7 +57,7 @@ const BUILT_IN_CHAPTERS = [
   { name: "Snacks", emoji: "🥨", hint: "snacks and appetizers" },
   { name: "Drinks", emoji: "🥤", hint: "drinks and smoothies" },
 ];
-const STATUSES = ["want_to_try", "favorite"];
+const STATUSES = ["want_to_try", "favorite", "tried_ok"]; // tried_ok = "Tried, just OK"
 
 // ---- The AI step: screenshots/text in, structured recipe out ----
 // Built fresh for each recipe, so chapters you add are included.
@@ -386,8 +386,14 @@ function cleanRecipe(r, chapterNames) {
     tags: list(r.tags).map((t) => t.toLowerCase()),
     chapter: chapterNames.includes(r.chapter) ? r.chapter : "", // "" shows as Unsorted
     notes: str(r.notes),
+    my_notes: str(r.my_notes), // your own notes after cooking it, like what you changed
   };
 }
+
+// The parts of a saved recipe you can change with "Edit recipe". Photos, cover, status, and
+// chapter have their own controls, so an edit never touches them.
+const EDITABLE = ["title", "source_name", "source_url", "servings", "total_time",
+  "ingredient_groups", "steps", "tags", "notes", "my_notes"];
 
 // ---- Small HTTP helpers ----
 function sendJson(res, status, data) {
@@ -764,10 +770,22 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 201, (await allChapters(user)).map(({ name: n, emoji: e }) => ({ name: n, emoji: e })));
     }
 
-    // Move a saved recipe to another chapter, switch "want to try" / "favorite", or fix its total time
+    // Move a saved recipe to another chapter, change its status, fix its total time,
+    // or save an edit ({ edits: { title, ingredient_groups, steps, my_notes, ... } }).
     const recipeRoute = url.pathname.match(/^\/api\/recipes\/([\w-]+)$/);
     if (req.method === "PATCH" && recipeRoute) {
-      const { chapter, status, total_time } = await readJson(req);
+      const { chapter, status, total_time, edits } = await readJson(req);
+      if (edits !== undefined) {
+        if (!edits || typeof edits !== "object") return sendJson(res, 400, { error: "Edits must be a recipe." });
+        const clean = cleanRecipe(edits, []); // same tidying as a new recipe
+        if (!clean.title) return sendJson(res, 400, { error: "A recipe needs a title." });
+        const edited = await changeRecipe(user, recipeRoute[1], (r) => {
+          for (const field of EDITABLE) r[field] = clean[field];
+          r.edited_at = new Date().toISOString();
+        });
+        console.log(`[edit] "${edited.title}"`);
+        return sendJson(res, 200, edited);
+      }
       if (chapter !== undefined && !(await chapterNames(user)).includes(chapter)) return sendJson(res, 400, { error: "Unknown chapter." });
       if (status !== undefined && !STATUSES.includes(status)) return sendJson(res, 400, { error: "Unknown status." });
       if (total_time !== undefined && (typeof total_time !== "string" || total_time.length > 40)) {

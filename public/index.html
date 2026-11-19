@@ -241,6 +241,7 @@
     }
     .radio-row input:checked + span.want { background: var(--mint); border-color: #8fcfab; }
     .radio-row input:checked + span.fav  { background: var(--pink); border-color: #f0a3b1; }
+    .radio-row input:checked + span.ok   { background: #e9def7; border-color: #c4b0e3; }
     .radio-row input:focus-visible + span { outline: 3px solid #f6b9ad; }
 
     /* ---------- Chapter chips (jump to / filter a chapter) ---------- */
@@ -381,6 +382,9 @@
     }
     .badge.favorite { background: var(--pink); }
     .badge.want_to_try { background: var(--mint); }
+    .badge.tried_ok { background: #e9def7; }
+    .my-notes { margin: 14px 0 6px; }
+    .my-notes p { margin: 4px 0 0; white-space: pre-line; }
     .tags { margin-top: 6px; }
     .tag {
       display: inline-block;
@@ -547,10 +551,14 @@
       <label for="f-notes">Notes</label>
       <textarea id="f-notes" style="min-height: 60px"></textarea>
 
+      <label for="f-my-notes">📝 My notes <span class="hint">(optional: what you changed, how it turned out)</span></label>
+      <textarea id="f-my-notes" style="min-height: 60px"></textarea>
+
       <label>Save as</label>
       <div class="radio-row">
         <label><input type="radio" name="status" value="want_to_try" checked /><span class="want">★ Want to try</span></label>
         <label><input type="radio" name="status" value="favorite" /><span class="fav">♥ Favorite</span></label>
+        <label><input type="radio" name="status" value="tried_ok" /><span class="ok">😐 Tried, just OK</span></label>
       </div>
 
       <button id="save-btn" class="btn">📌 Save to my scrapbook</button>
@@ -567,6 +575,7 @@
           <option value="">All recipes</option>
           <option value="want_to_try">★ Want to try</option>
           <option value="favorite">♥ Favorites</option>
+          <option value="tried_ok">😐 Tried, just OK</option>
         </select>
       </div>
       <div id="chips" class="chips" aria-label="Chapters"></div>
@@ -745,6 +754,7 @@
       $("f-steps").value = r.steps.join("\n");
       $("f-tags").value = r.tags.join(", ");
       $("f-notes").value = r.notes;
+      $("f-my-notes").value = r.my_notes || "";
 
       const warnings = [...r.uncertain];
       if (!r.is_recipe) warnings.unshift("The AI doesn't think this is a recipe.");
@@ -830,6 +840,7 @@
         steps: $("f-steps").value.split("\n"),
         tags: $("f-tags").value.split(","),
         notes: $("f-notes").value,
+        my_notes: $("f-my-notes").value,
         status: document.querySelector('input[name="status"]:checked').value,
       };
       const coverUsed = coverChoice; // remembered for analytics; the form is cleared after saving
@@ -879,7 +890,7 @@
     }
 
     // ---- Step 3: list and search ----
-    const statusLabel = { want_to_try: "★ Want to try", favorite: "♥ Favorite" };
+    const statusLabel = { want_to_try: "★ Want to try", favorite: "♥ Favorite", tried_ok: "😐 Tried, just OK" };
     const safeLink = (url) => (/^https?:\/\//i.test(url) ? url : "");
 
     // Chapters come from the server (server.js), so adding one there adds it here too.
@@ -1005,11 +1016,14 @@
         <div class="dialog-controls">
           <div><label for="d-chapter">Chapter</label><select id="d-chapter" data-id="${esc(r.id)}">${chapterOptions}</select></div>
           <div><label for="d-status">Saved as</label><select id="d-status" data-id="${esc(r.id)}">
-            <option value="want_to_try" ${r.status === "want_to_try" ? "selected" : ""}>★ Want to try</option>
-            <option value="favorite" ${r.status === "favorite" ? "selected" : ""}>♥ Favorite</option>
+            ${Object.entries(statusLabel).map(([value, label]) => `<option value="${value}" ${r.status === value ? "selected" : ""}>${label}</option>`).join("")}
           </select></div>
           <div><label for="d-time">Total time</label><input type="text" id="d-time" data-id="${rid}" maxlength="40" placeholder="like 45 min" value="${esc(r.total_time)}" /></div>
         </div>
+        ${r.my_notes
+          ? `<div class="sticky my-notes"><strong>📝 My notes</strong><p>${esc(r.my_notes)}</p></div>`
+          : ""}
+        <button type="button" class="btn secondary small" data-action="edit" data-id="${rid}">✏️ Edit recipe</button>
         <h4>Ingredients</h4>
         ${r.ingredient_groups.map((g) => `${g.name ? `<div class="group-name">${esc(g.name)}</div>` : ""}<ul>${g.items.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>`).join("")}
         <h4>Steps</h4>
@@ -1064,9 +1078,64 @@
         ? (changes.total_time.trim() ? "Time saved ⏱" : "Time removed")
         : changes.chapter
         ? `Moved to ${chapterInfo(changes.chapter).name} ${chapterInfo(changes.chapter).emoji}`
-        : changes.status === "favorite" ? "Added to favorites ♥" : "Marked want to try ★";
+        : changes.status === "favorite" ? "Added to favorites ♥"
+        : changes.status === "tried_ok" ? "Marked tried, just OK 😐"
+        : "Marked want to try ★";
       return sendChange(id, "PATCH", "", changes, message);
     }
+
+    // ---- Editing a saved recipe ----
+    // "Edit recipe" swaps the pop-up for a form with the same boxes as adding a recipe.
+    // Photos, cover, status, and chapter keep their own controls, so they aren't in the form.
+    function openEdit(id) {
+      const r = recipes.find((x) => x.id === id);
+      if (!r) return;
+      const ingredientsText = r.ingredient_groups
+        .map((g) => (g.name ? `# ${g.name}\n` : "") + g.items.join("\n"))
+        .join("\n\n");
+      const box = (id, label, value, height, hint = "") =>
+        `<label for="${id}">${label}${hint ? ` <span class="hint">${hint}</span>` : ""}</label>
+        <textarea id="${id}" style="min-height: ${height}px">${esc(value)}</textarea>`;
+      const line = (id, label, value, type = "text") =>
+        `<div><label for="${id}">${label}</label><input id="${id}" type="${type}" value="${esc(value)}" /></div>`;
+      $("dialog-content").innerHTML = `<form class="recipe" id="edit-form" data-id="${esc(r.id)}">
+        <span class="recipe-title">✏️ Edit recipe</span>
+        ${line("e-title", "Title", r.title)}
+        ${box("e-my-notes", "📝 My notes", r.my_notes || "", 90, "(what you changed, how it turned out)")}
+        <div class="row">${line("e-source-name", "Where it came from", r.source_name)}${line("e-source-url", "Link to the original", r.source_url, "url")}</div>
+        <div class="row">${line("e-servings", "Servings", r.servings)}${line("e-time", "Total time", r.total_time)}</div>
+        ${box("e-ingredients", "Ingredients", ingredientsText, 200, '(one per line; start a line with # for a section, like "# Sauce")')}
+        ${box("e-steps", "Steps", r.steps.join("\n"), 200, "(one per line)")}
+        ${line("e-tags", "Tags <span class=\"hint\">(comma-separated)</span>", r.tags.join(", "))}
+        ${box("e-notes", "Notes from the recipe", r.notes, 60)}
+        <div class="dialog-done">
+          <button type="submit" class="btn">💾 Save changes</button>
+          <button type="button" class="btn secondary" data-action="cancel-edit" data-id="${esc(r.id)}">Cancel</button>
+        </div>
+      </form>`;
+      $("e-title").focus();
+    }
+
+    $("dialog-content").addEventListener("submit", (e) => {
+      if (e.target.id !== "edit-form") return;
+      e.preventDefault();
+      const id = e.target.dataset.id;
+      const edits = {
+        title: $("e-title").value,
+        source_name: $("e-source-name").value,
+        source_url: $("e-source-url").value,
+        servings: $("e-servings").value,
+        total_time: $("e-time").value,
+        ingredient_groups: parseIngredients($("e-ingredients").value),
+        steps: $("e-steps").value.split("\n"),
+        tags: $("e-tags").value.split(","),
+        notes: $("e-notes").value,
+        my_notes: $("e-my-notes").value,
+      };
+      if (!edits.title.trim()) return showToast("A recipe needs a title.");
+      track("recipe_edited", { has_my_notes: Boolean(edits.my_notes.trim()) });
+      sendChange(id, "PATCH", "", { edits }, "Changes saved ✏️");
+    });
 
     // Photo buttons in the pop-up
     $("dialog-content").addEventListener("click", (e) => {
@@ -1083,6 +1152,8 @@
       }
       if (btn.dataset.action === "crop") openCrop(id, file);
       if (btn.dataset.action === "done") $("recipe-dialog").close();
+      if (btn.dataset.action === "edit") openEdit(id);
+      if (btn.dataset.action === "cancel-edit") openRecipe(id);
     });
 
     // ---- Crop window ----
@@ -1208,10 +1279,14 @@
         sendChange(e.target.dataset.id, "POST", "/screenshots", { images: resized }, `Added ${resized.length} photo${resized.length > 1 ? "s" : ""} 📷`);
       }
     });
-    $("dialog-close").addEventListener("click", () => $("recipe-dialog").close());
+    // Closing the pop-up in the middle of an edit asks first, so changes aren't lost by accident.
+    const okToClose = () => !$("edit-form") || confirm("Close without saving your changes?");
+    const closeRecipe = () => { if (okToClose()) $("recipe-dialog").close(); };
+    $("dialog-close").addEventListener("click", closeRecipe);
     $("recipe-dialog").addEventListener("click", (e) => {
-      if (e.target === $("recipe-dialog")) $("recipe-dialog").close(); // click outside the pop-up
+      if (e.target === $("recipe-dialog")) closeRecipe(); // click outside the pop-up
     });
+    $("recipe-dialog").addEventListener("cancel", (e) => { if (!okToClose()) e.preventDefault(); }); // Escape key
 
     let searchTimer;
     $("search").addEventListener("input", () => { clearTimeout(searchTimer); searchTimer = setTimeout(loadRecipes, 250); });
