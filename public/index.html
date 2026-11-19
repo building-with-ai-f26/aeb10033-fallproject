@@ -71,6 +71,9 @@
       transform: rotate(-0.4deg);
     }
     section.card:nth-of-type(even) { transform: rotate(0.35deg); }
+    /* No tilt on "My recipes": a tilt turns around the card's middle, so on a phone (one long column
+       of recipes) its top swung right, off the screen, and its bottom swung left. */
+    section#saved.card { transform: none; }
     section.card::before {
       content: "";
       position: absolute;
