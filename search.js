@@ -2,7 +2,7 @@
 //
 // Every word you type has to match a whole word in the recipe ("bread" finds "breads" but not
 // "breadcrumbs"). If all your words are in the title, tags, chapter, or source, it's a "best" match.
-// If some only appear in the ingredients or notes (like "chicken" in "chicken broth"), it's an
+// If some only appear in the ingredients or notes, yours included (like "chicken" in "chicken broth"), it's an
 // "also" match, which the page shows in a separate section underneath.
 
 // The words in some text, lowercased: "No-Knead Bread!" -> ["no", "knead", "bread"]
@@ -26,6 +26,7 @@ function searchRecipe(recipe, query) {
   const main = new Set(words([recipe.title, recipe.chapter, recipe.source_name, ...(recipe.tags || [])].join(" ")));
   const other = new Set(words([
     recipe.notes,
+    recipe.my_notes,
     ...(recipe.ingredient_groups || []).flatMap((g) => [g.name, ...g.items]),
   ].join(" ")));
 
