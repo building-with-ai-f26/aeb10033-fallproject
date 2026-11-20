@@ -21,7 +21,8 @@ docs/*.png           Screenshots shown on the Product Page
 tests/               Automated tests (node --test), lock-check.js (two-account lock test), notes
 SECURITY.md          Security audit: what's locked, checked, fixed, and left
 supabase/schema.sql  Supabase tables, photo bucket, and Row Level Security rules (run in the SQL Editor)
-scripts/             One-time scripts (ask before running: they change saved data)
+scripts/             One-time scripts (ask before running import-local-data.js: it changes saved data);
+                     backup-export.js only reads (manual backup to data/backups/)
 data/                Private, git-ignored: old local recipes, chapters, and photos from
                      before Supabase, kept as a backup (the app no longer uses it)
 .env                 Private keys (git-ignored); copy from .env.example
@@ -43,6 +44,7 @@ data/                Private, git-ignored: old local recipes, chapters, and phot
 - **Run deterministic tests:** `node --test` (runs `tests/*.test.js`; no install needed)
 - **Run model evals:** None yet (Build 4).
 - **Lock test (manual, needs two accounts):** `node tests/lock-check.js`
+- **Manual backup (read-only):** `node scripts/backup-export.js` copies your recipes, chapters, and photos to `data/backups/<date>/` (git-ignored). Run it before any data-changing step.
 
 ## 3. Non-Negotiable Engineering Rules
 1. **Plan before coding:** Before touching multiple files, propose a brief plan and wait for approval.

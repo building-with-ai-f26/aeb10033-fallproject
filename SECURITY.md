@@ -26,7 +26,7 @@
 | # | Check | How | Result |
 |---|---|---|---|
 | 1 | Secrets never committed | Searched all git history for OpenRouter keys (`sk-or-v1-…`), Supabase secret keys, old-style Supabase keys, PostHog personal keys (`phx_…`), and `service_role`; checked `.env` was never committed and is git-ignored | ✅ 0 matches. Only the PostHog `phc_` project key appears (public by design). |
-| 2 | Keys on the live site | Keys are set as Render environment variables, not in code | ✅ |
+| 2 | Keys on the live site | Keys are set as Render environment variables, not in code. On Nov 19 I downloaded the live page and searched it for `sb_secret_`, `service_role`, `sk-or-`, `sk-ant-`, `sk-proj-`, `sk_live_`, `phx_`, and old-style Supabase keys (`eyJhbGci…`); the page loads no scripts from other sites except PostHog | ✅ 0 matches. Only the public PostHog `phc_` key is on the page. |
 | 3 | Signed-out requests refused | Called recipes, photos, chapters, and the AI with no sign-in and with a fake sign-in cookie, locally and on the live site | ✅ all 401 "Please sign in." |
 | 4 | Public key alone can't reach data | With only the publishable key: read `recipes`, `chapters`, `ai_reads`; add a recipe; list photos | ✅ empty lists; adding refused ("new row violates row-level security") |
 | 5 | Nobody can create an account | Tried to sign up a new account with the publishable key | ✅ refused ("Signups not allowed") |
@@ -37,6 +37,8 @@
 | 10 | Recipe text can't run code on the page (XSS) | Read every place the page inserts HTML | ✅ recipe and AI text goes through `esc()` before it's shown |
 | 11 | Upload sizes | Requests over 40 MB, photo downloads over 10 MB, pages over 5 MB are cut off | ✅ |
 | 12 | Logs | Server logs never include emails, passwords, tokens, or recipe text from sign-in | ✅ (recipe titles are logged) |
+| 13 | Dependencies (`npm audit`) | The app uses only Node.js built-in modules: no `package.json`, no `node_modules`, no npm packages | ✅ nothing to audit. Keeping Node up to date (`NODE_VERSION=22` on Render) is the only dependency. |
+| 14 | Manual database backup | `node scripts/backup-export.js` signs in as me and copies my recipes, chapters, and photos to `data/backups/` (git-ignored). It only reads from Supabase | ✅ Nov 19: 29 recipes, 2 chapters, 57 photos (15 MB). I checked that every photo the recipes use is in the backup and no file is empty. |
 
 ## What I found and fixed
 
@@ -57,7 +59,8 @@
 - **No Content-Security-Policy.** The page uses inline scripts and PostHog's loader, so a strict policy needs more work.
 - **SSRF check has a small timing gap (DNS rebinding).** The address is checked, then fetched; a hostile website could change its address between the two. Hard to pull off, and the server holds no private services besides itself.
 - **The daily AI limit is per account, not for the whole app.** With 2 accounts the worst case is about 60 reads a day (≈ $0.12), and the OpenRouter key's $10 credit limit caps the total either way.
-- **Backups.** Supabase's free plan has no point-in-time restore. My pre-Supabase data is still on my laptop in `data/`. A regular export is a Build 5 task.
+- **Backups are manual.** Supabase's free plan has no automatic backups or point-in-time restore. I run `node scripts/backup-export.js` before risky changes; nothing runs it on a schedule yet.
+- **No per-visitor limit on saving recipes, chapters, or photos.** Only the AI route has a daily limit. Accounts are invite-only (sign-up is off), so only people I added can save anything, and each account can only fill its own space. Supabase's free plan caps the database at 500 MB and storage at 1 GB either way.
 - **Free-plan pauses.** Render sleeps after ~15 minutes idle (the first visit takes 30–60 seconds), and Supabase pauses a free project after about a week with no activity.
 - **Error messages can include Supabase's error text** (for example "Database error (400): …"). They don't contain keys or other people's data.
 - **Editing the same recipe in two tabs at the same moment**: the last save wins.
