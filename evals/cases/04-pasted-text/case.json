@@ -1,0 +1,32 @@
+{
+  "kind": "normal",
+  "description": "Yummy Toddler Food animal crackers: the whole web page copied and pasted (menus, story, a short ingredient list near the top, the recipe card, and many reader comments). Tricky parts: the short list near the top leaves out salt and vanilla, which only the recipe card has; comments suggest cinnamon, cocoa, flax, sprinkles, baby cereal, and oat milk, none of which are in the recipe. Recipe card: 7 ingredients, 6 steps, 12 servings (about 2 dozen very small cookies), 17 minutes total.",
+  "link": "",
+  "text_file": "input.txt",
+  "images": [],
+  "expect": {
+    "is_recipe": true,
+    "must_include": [
+      "1 cup whole-wheat flour",
+      "1/2 teaspoon baking powder",
+      "1/8 teaspoon salt",
+      "1/4 cup unsalted butter",
+      "2 tablespoons milk",
+      "2 tablespoons maple syrup",
+      "1/2 teaspoon vanilla extract",
+      "375",
+      "7-9 minutes"
+    ],
+    "must_not_include": [
+      "cinnamon",
+      "cocoa",
+      "flax",
+      "sprinkles",
+      "baby cereal",
+      "baking soda",
+      "oatmilk"
+    ],
+    "ingredients": 7,
+    "steps": 6
+  }
+}

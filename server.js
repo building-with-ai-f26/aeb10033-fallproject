@@ -324,6 +324,26 @@ async function downloadPhoto(user, photoUrl, recipeId) {
   }
 }
 
+// Turns a pasted link and/or pasted text into the text the AI reads.
+// Used by /api/extract and by the evals (evals/run.js), so both read recipes the same way.
+async function buildExtractText({ link = "", text = "", hasImages = false }) {
+  const parts = [];
+  let photoUrl = "";
+  if (link) {
+    try {
+      const page = await readRecipeLink(link);
+      parts.push(page.text);
+      photoUrl = page.photoUrl;
+    } catch (err) {
+      // If the site blocks us but you also gave screenshots or text, use those and keep the link as the source.
+      if (!(err instanceof UserError) || (!text && !hasImages)) throw err;
+      console.log(`[link] couldn't read the page, using your text/screenshots instead: ${err.message}`);
+    }
+  }
+  if (text) parts.push(`Recipe text pasted by the user:\n\n${text}`);
+  return { text: parts.join("\n\n---\n\n"), photoUrl };
+}
+
 async function extractRecipe({ images, text, model, chapters }) {
   const content = [];
   if (text.trim()) content.push({ type: "text", text });
@@ -355,8 +375,22 @@ async function extractRecipe({ images, text, model, chapters }) {
   const raw = body.choices?.[0]?.message?.content || "";
   const start = raw.indexOf("{");
   const end = raw.lastIndexOf("}");
-  if (start === -1 || end === -1) throw new Error("The AI did not return a recipe. Try again or use clearer screenshots.");
-  const recipe = JSON.parse(raw.slice(start, end + 1));
+  if (start === -1 || end === -1) {
+    console.log(`[extract] no recipe in the AI reply (finish: ${body.choices?.[0]?.finish_reason}, ${raw.length} characters)`); // not the text itself: logs stay free of recipe content
+    const err = new Error("The AI did not return a recipe. Try again or use clearer screenshots.");
+    err.raw = { finish_reason: body.choices?.[0]?.finish_reason, text: raw.slice(0, 2000) }; // for the evals; never sent to the page
+    throw err;
+  }
+  let recipe;
+  try {
+    recipe = JSON.parse(raw.slice(start, end + 1));
+  } catch {
+    // Broken JSON from the AI: show the friendly message, keep the reply for the evals (never sent to the page)
+    console.log(`[extract] the AI reply wasn't valid JSON (finish: ${body.choices?.[0]?.finish_reason}, ${raw.length} characters)`);
+    const err = new Error("The AI did not return a recipe. Try again or use clearer screenshots.");
+    err.raw = { finish_reason: body.choices?.[0]?.finish_reason, text: raw.slice(0, 4000) };
+    throw err;
+  }
 
   const usage = {
     model: body.model || model,
@@ -686,23 +720,11 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 400, { error: "Add a recipe link, a screenshot, or some recipe text." });
       }
 
-      const parts = [];
-      let photoUrl = "";
-      if (recipeLink) {
-        try {
-          const page = await readRecipeLink(recipeLink);
-          parts.push(page.text);
-          photoUrl = page.photoUrl;
-        } catch (err) {
-          // If the site blocks us but you also gave screenshots or text, use those and keep the link as the source.
-          if (!(err instanceof UserError) || (!pasted && !images.length)) throw err;
-          console.log(`[link] couldn't read the page, using your text/screenshots instead: ${err.message}`);
-        }
-      }
-      if (pasted) parts.push(`Recipe text pasted by the user:\n\n${pasted}`);
+      const input = await buildExtractText({ link: recipeLink, text: pasted, hasImages: images.length > 0 });
+      const photoUrl = input.photoUrl;
       await useAiRead(user);
       const chapters = await allChapters(user);
-      const result = await extractRecipe({ images, text: parts.join("\n\n---\n\n"), model: MODEL, chapters });
+      const result = await extractRecipe({ images, text: input.text, model: MODEL, chapters });
       if (recipeLink) result.recipe.source_url = recipeLink; // the link you pasted is the source
       return sendJson(res, 200, { ...result, photo_url: photoUrl }); // the photo is downloaded only if you save
     }
@@ -891,6 +913,12 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, HOST, () => {
-  console.log(`Scrapbook Kitchen running at http://localhost:${PORT} (model: ${MODEL}, analytics: ${POSTHOG_KEY ? "on" : "off"}, daily AI limit: ${DAILY_AI_LIMIT})`);
-});
+// Start the web server only when run as `node server.js`. The evals load this file
+// to reuse the AI step without starting a server.
+if (require.main === module) {
+  server.listen(PORT, HOST, () => {
+    console.log(`Scrapbook Kitchen running at http://localhost:${PORT} (model: ${MODEL}, analytics: ${POSTHOG_KEY ? "on" : "off"}, daily AI limit: ${DAILY_AI_LIMIT})`);
+  });
+}
+
+module.exports = { buildExtractText, extractRecipe, BUILT_IN_CHAPTERS, MODEL };

@@ -1,0 +1,30 @@
+{
+  "kind": "normal",
+  "description": "Old newspaper clipping (Coconut Bars) taped to a recipe card, photographed in front of a recipe box. Two parts: a crust, then a topping after 'Then:'. Nuts (1 cup) and coconut (1 cup, spelled 'cocoanut') appear only in the method, so a complete draft lists them too (11 ingredients). 325°F; 20 then about 25 minutes; makes about 2 dozen bars. (The photo was cropped to remove the submitter's name, address, and phone number.)",
+  "link": "",
+  "text": "",
+  "images": [
+    "printed-card-coconutbars.jpg"
+  ],
+  "expect": {
+    "is_recipe": true,
+    "must_include": [
+      "1/2 cup butter",
+      "1 cup flour",
+      "1/2 cup brown sugar",
+      "2 eggs",
+      "1 cup brown sugar",
+      "1/8 tsp",
+      "salt",
+      "2 tbl",
+      "1 tsp",
+      "vanilla",
+      "1/2 tsp",
+      "baking powder",
+      "nuts",
+      "325",
+      "25 minutes"
+    ],
+    "ingredients": 11
+  }
+}

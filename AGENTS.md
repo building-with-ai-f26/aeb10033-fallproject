@@ -18,6 +18,7 @@ safe-fetch.js        Fetches pasted links and photos, refusing private addresses
 public/index.html    The whole app page (HTML, CSS, plain JavaScript), including sign-in and PostHog analytics
 docs/index.html      Product Page on GitHub Pages: PRD, build log, PostHog snippet
 docs/*.png           Screenshots shown on the Product Page
+evals/               Model evals: rules, 10 test cases, runner (run.js), and scored results
 tests/               Automated tests (node --test), lock-check.js (two-account lock test), notes
 SECURITY.md          Security audit: what's locked, checked, fixed, and left
 supabase/schema.sql  Supabase tables, photo bucket, and Row Level Security rules (run in the SQL Editor)
@@ -42,7 +43,7 @@ data/                Private, git-ignored: old local recipes, chapters, and phot
 - **Set up Supabase (once):** paste `supabase/schema.sql` into the Supabase SQL Editor and run it. Accounts are added in Authentication → Users (public sign-up is off).
 - **Run locally:** `node server.js`, then open http://localhost:3000
 - **Run deterministic tests:** `node --test` (runs `tests/*.test.js`; no install needed)
-- **Run model evals:** None yet (Build 4).
+- **Run model evals (spends AI money, ask first):** `node evals/run.js <label>` runs every case in `evals/cases/` through the real AI step and writes `evals/results/<label>.md`. Rules and case format: `evals/README.md`.
 - **Lock test (manual, needs two accounts):** `node tests/lock-check.js`
 - **Manual backup (read-only):** `node scripts/backup-export.js` copies your recipes, chapters, and photos to `data/backups/<date>/` (git-ignored). Run it before any data-changing step.
 

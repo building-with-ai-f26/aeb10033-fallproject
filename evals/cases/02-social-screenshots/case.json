@@ -1,0 +1,33 @@
+{
+  "kind": "normal",
+  "description": "Instagram caption from @abowlofstew (Balsamic and Red Onion Tatin) across 3 overlapping phone screenshots. Tricky parts: 'Big pinch of Salt and Black Pepper' and 'To Garnish' appear in screenshots 1 and 2, and the balsamic step appears in 2 and 3, so a careless read repeats them; phone status bar, Follow button, hashtags, and '1 day ago' are junk; the method uses veg oil that the ingredient list leaves out; '180oC' means 180°C.",
+  "link": "",
+  "text": "",
+  "images": [
+    "IMG_3068.PNG",
+    "IMG_3069.PNG",
+    "IMG_3070.PNG"
+  ],
+  "expect": {
+    "is_recipe": true,
+    "must_include": [
+      "2-3 red onions",
+      "30g butter",
+      "1 tbsp caster sugar",
+      "1 tsp dried thyme",
+      "40ml balsamic vinegar",
+      "puff pastry",
+      "burrata",
+      "chives",
+      "balsamic glaze",
+      "25 minutes",
+      "180"
+    ],
+    "must_not_include": [
+      "follow",
+      "#easyrecipes",
+      "day ago"
+    ],
+    "steps": 7
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "kind": "normal",
+  "description": "Photo of an open cookbook page (Baked Cheesy Meatballs, page 166), taken at an angle with a food photo on the facing page. Ingredients in a narrow column with metric and imperial amounts; the Tips & Swaps text is cut off at the left edge. Feeds 4; 6 numbered steps; oven 200°C fan/220°C/425°F/Gas mark 7.",
+  "link": "",
+  "text": "",
+  "images": ["cookbook-photo-baked-cheesy-meatballs.png"],
+  "expect": {
+    "is_recipe": true,
+    "must_include": [
+      "500g (1lb 2oz) lean beef mince",
+      "75g",
+      "80g",
+      "1 onion",
+      "2 garlic cloves",
+      "1 tbsp dried mixed herbs",
+      "400g (14oz) can chopped tomatoes",
+      "1 tbsp tomato ketchup",
+      "50ml",
+      "50g",
+      "basil",
+      "16",
+      "425"
+    ],
+    "steps": 6
+  }
+}
