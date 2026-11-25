@@ -1,0 +1,25 @@
+{
+  "kind": "normal",
+  "description": "King Arthur Creamy Key Lime Bars, read from the website link (the page has structured recipe data). Tricky parts: the ingredient list has no section names but repeats salt and lime zest across filling, crust, and topping, and the page description mentions condensed milk and eggs that the recipe does NOT use. Total time on the page is 6 hr 45 min (mostly chilling); makes 16 bars in an 8-inch pan.",
+  "link": "https://www.kingarthurbaking.com/recipes/creamy-key-lime-bars-recipe",
+  "text": "",
+  "images": [],
+  "expect": {
+    "is_recipe": true,
+    "must_include": [
+      "2 1/2 cups (568g) heavy cream",
+      "3/4 cup (149g) granulated sugar",
+      "6 tablespoons (85g) key lime juice",
+      "1 1/2 cups (150g) graham cracker crumbs",
+      "1/4 cup (28g) confectioners",
+      "6 tablespoons (85g) unsalted butter",
+      "1 cup (113g) whipped cream",
+      "refrigerator for at least 6 hours"
+    ],
+    "must_not_include": [
+      "condensed milk",
+      "eggs"
+    ],
+    "ingredients": 11
+  }
+}

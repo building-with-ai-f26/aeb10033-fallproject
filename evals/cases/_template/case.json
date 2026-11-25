@@ -1,0 +1,12 @@
+{
+  "kind": "normal",
+  "description": "Describe the input and why it's in the test set",
+  "link": "",
+  "text": "",
+  "images": [],
+  "expect": {
+    "is_recipe": true,
+    "must_include": [],
+    "must_not_include": []
+  }
+}

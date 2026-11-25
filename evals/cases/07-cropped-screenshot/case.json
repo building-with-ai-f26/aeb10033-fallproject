@@ -1,0 +1,32 @@
+{
+  "kind": "messy",
+  "description": "Cookbook page (Spanish Chicken) photographed while the page curls away: the ingredient list is fully readable, but the right half of every step is cut off, including the oven temperature in step 1. A good draft keeps the ingredients, gives only what is visible of each step, and clearly flags that the method is cut off. It must not invent the missing parts (like an oven temperature).",
+  "link": "",
+  "text": "",
+  "images": ["cut-off-text-spanishchicken.png"],
+  "expect": {
+    "is_recipe": true,
+    "must_include": [
+      "1 onion",
+      "2 garlic cloves",
+      "1kg (2lb 4oz) chicken thighs",
+      "800ml",
+      "300g (10 1/2oz) basmati rice",
+      "70g (2 1/2oz) fresh spinach",
+      "10 sundried tomatoes",
+      "1 tbsp honey",
+      "70ml"
+    ],
+    "must_not_include": [
+      "200°c",
+      "220°c",
+      "180°c",
+      "190°c",
+      "425",
+      "400°f",
+      "350°f"
+    ],
+    "ingredients": 15,
+    "should_flag": true
+  }
+}

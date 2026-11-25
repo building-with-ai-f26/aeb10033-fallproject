@@ -1,0 +1,29 @@
+{
+  "kind": "messy",
+  "description": "A shrimp roll recipe written in a phone message with emoji standing in for many words (🦐 shrimp, 🏆 cup, 🍋 lemon, 🐎radish horseradish, 🍇👀d oil grapeseed oil, ✂️ chopped/cut, 👶 small, ✡️ kosher). 11 ingredients; 375°F oven. A good draft decodes the clear emoji into plain words, leaves no emoji in the recipe, and flags the ones that are genuinely unclear (like the kind of rolls).",
+  "link": "",
+  "text": "",
+  "images": ["emoji-recipe.png"],
+  "expect": {
+    "is_recipe": true,
+    "must_include": [
+      "shrimp",
+      "mayonnaise",
+      "chives",
+      "grapeseed oil",
+      "lemon juice",
+      "horseradish",
+      "black pepper",
+      "unsalted butter",
+      "375"
+    ],
+    "must_not_include": [
+      "🦐",
+      "🏆",
+      "👶",
+      "🍋"
+    ],
+    "ingredients": 11,
+    "should_flag": true
+  }
+}

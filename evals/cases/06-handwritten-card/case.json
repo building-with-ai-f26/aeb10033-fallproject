@@ -1,0 +1,25 @@
+{
+  "kind": "messy",
+  "description": "Handwritten Peanut Butter Fudge card (Mrs. Bray). Tricky parts: the chocolate/cocoa ingredient line and the 'boil until it forms a soft ball' line are crossed out, so they should not be in the recipe; notes are squeezed in sideways ('mix with sugar', '50% ... little water', 'med heat + bring to boil + cook for 3-4 min'); some amounts are hard to read (the peanut butter amount, the cook time). A good draft flags the unclear parts instead of guessing silently.",
+  "link": "",
+  "text": "",
+  "images": ["written-card-pbfudge.png"],
+  "expect": {
+    "is_recipe": true,
+    "must_include": [
+      "2 cups sugar",
+      "evaporated milk",
+      "oleo",
+      "vanilla",
+      "peanut butter",
+      "buttered pan",
+      "squares"
+    ],
+    "must_not_include": [
+      "bitter chocolate",
+      "cocoa",
+      "soft ball"
+    ],
+    "should_flag": true
+  }
+}
