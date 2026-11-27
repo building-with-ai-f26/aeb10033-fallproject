@@ -27,6 +27,13 @@
       "oatmilk"
     ],
     "ingredients": 7,
-    "steps": 6
+    "steps": 6,
+    "nutrition": {
+      "source": "shown",
+      "calories": 79,
+      "protein_g": 1,
+      "carbs_g": 10,
+      "fat_g": 4
+    }
   }
 }

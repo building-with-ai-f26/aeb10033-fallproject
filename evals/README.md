@@ -12,7 +12,7 @@ Each result is scored on four rules: **0** = fails, **1** = partly, **2** = meet
 |---|---|---|---|
 | R1 | **Faithful:** every ingredient, amount, and step matches the source, and nothing is invented | All amounts and wording match | A wrong amount, or an invented ingredient or step |
 | R2 | **Complete:** nothing missing, nothing twice (even when screenshots overlap) | Every ingredient and step appears exactly once | An ingredient or step is missing or repeated |
-| R3 | **Honest about doubt:** unclear words and numbers are flagged under "Double-check", and input that isn't a recipe is called out instead of made up | Real doubts flagged, no needless flags; non-recipes refused | A silent guess, or a made-up recipe |
+| R3 | **Honest about doubt:** unclear words and numbers are flagged under "Double-check", input that isn't a recipe is called out instead of made up, and nutrition says "estimated" unless it's copied from the source | Real doubts flagged, no needless flags; non-recipes refused; nutrition labeled honestly | A silent guess, a made-up recipe, or an estimate passed off as the source's numbers |
 | R4 | **Clean and usable:** no ads, comments, or buttons; sections grouped; sensible time, tags, and chapter | Ready to save without fixing | Junk text in the recipe, or the wrong chapter or time |
 
 ## The test set (10 cases)
@@ -42,7 +42,8 @@ Copy `evals/cases/_template/` to start one. Folders starting with `_` are skippe
     "must_not_include": ["comment LINK"],
     "ingredients": 9,
     "steps": 6,
-    "should_flag": false
+    "should_flag": false,
+    "nutrition": { "source": "shown", "calories": 79 }
   }
 }
 ```
@@ -52,6 +53,8 @@ Copy `evals/cases/_template/` to start one. Folders starting with `_` are skippe
   - `must_include` / `must_not_include`: short phrases from the real recipe, or things that must not appear. Matching ignores capital letters and treats `½` as `1/2`.
   - `ingredients` / `steps`: the true counts.
   - `should_flag`: true if something is genuinely unclear and should be under "Double-check".
+  - `nutrition`: `source` is "shown" (copied from the source), "estimated", or "none"; add `calories`, `protein_g`, `carbs_g`, `fat_g` to check copied numbers exactly.
+- Nutrition was added to the app after the `before` run (Nov 27), so `before` has no nutrition to score.
 - The automatic checks help with scoring, but a person scores every rule after reading the output.
 - Links can change or block reading over time, so screenshot cases are more repeatable.
 

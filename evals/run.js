@@ -71,6 +71,13 @@ function autoChecks(recipe, expect) {
   const steps = (recipe.steps || []).length;
   if (expect.steps !== undefined) checks.push({ check: `${expect.steps} steps (got ${steps})`, pass: steps === expect.steps });
   if (expect.should_flag) checks.push({ check: "flags something to double-check", pass: (recipe.uncertain || []).length > 0 });
+  if (expect.nutrition) {
+    const n = recipe.nutrition || { source: "none" };
+    checks.push({ check: `nutrition is "${expect.nutrition.source}" (got "${n.source}")`, pass: n.source === expect.nutrition.source });
+    for (const key of ["calories", "protein_g", "carbs_g", "fat_g"]) {
+      if (expect.nutrition[key] !== undefined) checks.push({ check: `nutrition ${key} ${expect.nutrition[key]} (got ${n[key]})`, pass: n[key] === expect.nutrition[key] });
+    }
+  }
   return checks;
 }
 
@@ -86,6 +93,10 @@ function recipeMarkdown(r) {
   lines.push("");
   (r.steps || []).forEach((s, i) => lines.push(`${i + 1}. ${s}`));
   if (r.notes) lines.push("", `Notes: ${r.notes}`);
+  if (r.nutrition) {
+    const n = r.nutrition;
+    lines.push("", n.source === "none" ? "Nutrition: none" : `Nutrition (${n.source}; ${n.serving || "no serving given"}): ${n.calories} cal · ${n.protein_g}g protein · ${n.carbs_g}g carbs · ${n.fat_g}g fat`);
+  }
   if ((r.uncertain || []).length) lines.push("", "Double-check:", ...r.uncertain.map((u) => `- ${u}`));
   return lines.join("\n");
 }
