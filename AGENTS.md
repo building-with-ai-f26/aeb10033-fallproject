@@ -6,7 +6,7 @@
 - **What this repo builds:** Scrapbook Kitchen, a personal recipe saver. You upload screenshots or photos of a recipe (social media posts, websites, cookbooks, handwritten cards) or paste text; AI turns them into a clean recipe you review, save as "want to try," "favorite," or "tried, just OK," search later, and edit with your own notes after cooking.
 - **Primary user & core workflow:** See the living PRD in `docs/index.html`.
 - **Tech stack:** Node.js 22+ using only built-in modules (no npm packages) / one HTML page with plain JavaScript / OpenRouter API (default model `anthropic/claude-haiku-5.5`) / Supabase (invite-only sign-in, `recipes` and `chapters` tables with Row Level Security, and a private `photos` bucket, all called with plain `fetch`) / hosted on Render at https://aeb10033-fallproject.onrender.com.
-- **Main files:** `server.js` (server, sign-in, AI prompt, link reading, database and photo calls), `safe-fetch.js` (refuses links to private addresses), `search.js` (search matching), `recipe-time.js` (short times on cards), and `public/index.html` (the page).
+- **Main files:** `server.js` (server, sign-in, AI prompt, link reading, database and photo calls), `safe-fetch.js` (refuses links to private addresses), `search.js` (search matching), `recipe-time.js` (short times on cards), `nutrition.js` (nutrition rules and cleaning), and `public/index.html` (the page).
 - **Security:** see `SECURITY.md` (what's locked, what was checked, known risks).
 
 ### Project structure
@@ -14,6 +14,7 @@
 server.js            Node server: routes, AI prompt + recipe format, link reading, photo files
 search.js            Search matching (whole words, also-matches, quick estimates)
 recipe-time.js       Short recipe times for the board cards ("3 hours" -> "3 hr")
+nutrition.js         Nutrition per serving: what the AI is told, and cleaning before saving
 safe-fetch.js        Fetches pasted links and photos, refusing private addresses (SSRF protection)
 public/index.html    The whole app page (HTML, CSS, plain JavaScript), including sign-in and PostHog analytics
 docs/index.html      Product Page on GitHub Pages: PRD, build log, PostHog snippet
@@ -23,7 +24,8 @@ tests/               Automated tests (node --test), lock-check.js (two-account l
 SECURITY.md          Security audit: what's locked, checked, fixed, and left
 supabase/schema.sql  Supabase tables, photo bucket, and Row Level Security rules (run in the SQL Editor)
 scripts/             One-time scripts (ask before running import-local-data.js: it changes saved data);
-                     backup-export.js only reads (manual backup to data/backups/)
+                     backup-export.js only reads (manual backup to data/backups/);
+                     add-nutrition.js fills nutrition on old recipes (asks; spends AI money)
 data/                Private, git-ignored: old local recipes, chapters, and photos from
                      before Supabase, kept as a backup (the app no longer uses it)
 .env                 Private keys (git-ignored); copy from .env.example

@@ -132,6 +132,8 @@
     textarea { min-height: 90px; resize: vertical; }
     .row { display: flex; gap: 12px; flex-wrap: wrap; }
     .row > * { flex: 1 1 200px; }
+    .nutrition-row > * { flex: 1 1 110px; }
+    .nutrition-note { display: block; min-height: 1.2em; margin-top: 4px; }
 
     .visually-hidden {
       position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
@@ -539,6 +541,10 @@
         <div><label for="f-time">Total time</label><input id="f-time" type="text" /></div>
       </div>
 
+      <label>Nutrition per serving <span class="hint" id="f-nutrition-hint">(leave blank if you don't want it)</span></label>
+      <div class="row nutrition-row" id="f-nutrition"></div>
+      <span class="hint nutrition-note" id="f-nutrition-note" role="status"></span>
+
       <label for="f-ingredients">Ingredients <span class="hint">(one per line; start a line with # for a section, like "# Sauce")</span></label>
       <textarea id="f-ingredients" style="min-height: 200px"></textarea>
 
@@ -741,6 +747,76 @@
       }
     });
 
+    // ---- Nutrition per serving (calories, protein, carbs, fat) ----
+    const NUTRIENTS = [["calories", "Calories", ""], ["protein_g", "Protein", "g"], ["carbs_g", "Carbs", "g"], ["fat_g", "Fat", "g"]];
+
+    // Four number boxes, for the draft review and the Edit form. prefix keeps the ids apart ("f" or "e").
+    function nutritionInputs(prefix, n) {
+      return NUTRIENTS.map(([key, label, unit]) =>
+        `<div><label for="${prefix}-${key}">${label}${unit ? ` (${unit})` : ""}</label>
+        <input id="${prefix}-${key}" type="number" inputmode="decimal" min="0" step="1" value="${esc(n?.[key] ?? "")}" /></div>`).join("");
+    }
+    // Read the boxes back. The serving description and the "estimated" flag are kept on the row
+    // (data-serving, data-estimated). The server cleans it, and saves nothing if every box is blank.
+    function readNutrition(prefix) {
+      const row = $(`${prefix}-nutrition`);
+      const n = { serving: row.dataset.serving || "", estimated: row.dataset.estimated === "true" };
+      for (const [key] of NUTRIENTS) n[key] = $(`${prefix}-${key}`).value;
+      return n;
+    }
+
+    // Nutrition is per serving, so when Servings changes (8 -> 4), scale the boxes to match (x2).
+    // Works when the old and new servings both START with a number ("8", "12 (2 dozen cookies)");
+    // anything else ("Makes about 2 dozen", "Feeds 4") just asks you to check the numbers.
+    function watchServings(prefix) {
+      const servingsBox = $(`${prefix}-servings`);
+      const row = $(`${prefix}-nutrition`);
+      const note = $(`${prefix}-nutrition-note`);
+      const firstNumber = (text) => Number(String(text).match(/^\s*(\d+(\.\d+)?)(?!\s*dozen)/i)?.[1] || 0);
+      let before = null; // the servings and boxes when you started changing servings
+      servingsBox.addEventListener("focus", () => {
+        before = {
+          servings: firstNumber(servingsBox.value),
+          serving: row.dataset.serving || "",
+          values: Object.fromEntries(NUTRIENTS.map(([key]) => [key, $(`${prefix}-${key}`).value])),
+        };
+        note.textContent = "";
+      });
+      servingsBox.addEventListener("input", () => {
+        if (!before || NUTRIENTS.every(([key]) => before.values[key] === "")) return; // no nutrition to adjust
+        const now = firstNumber(servingsBox.value);
+        const ratio = before.servings && now ? before.servings / now : 0;
+        // Back to the starting numbers first, so typing "1" then "12" doesn't scale twice
+        for (const [key] of NUTRIENTS) $(`${prefix}-${key}`).value = before.values[key];
+        row.dataset.serving = before.serving;
+        if (!ratio) {
+          note.textContent = servingsBox.value.trim() ? "Servings changed: check the nutrition numbers." : "";
+          return;
+        }
+        if (ratio === 1) return (note.textContent = "");
+        for (const [key] of NUTRIENTS) {
+          const value = before.values[key];
+          if (value === "") continue;
+          const scaled = Number(value) * ratio;
+          $(`${prefix}-${key}`).value = key === "calories" ? Math.round(scaled / 10) * 10 : Math.round(scaled);
+        }
+        row.dataset.serving = now === 1 ? "the whole recipe" : `1 of ${now} servings`;
+        note.textContent = `Nutrition adjusted for ${now} serving${now === 1 ? "" : "s"} (was ${before.servings}).`;
+      });
+    }
+
+    // "Per serving (1 of 8 servings): 310 cal · 18g protein · 32g carbs · 12g fat · estimated"
+    function nutritionLine(n) {
+      if (!n) return "";
+      const parts = [n.calories != null && `${n.calories} cal`, n.protein_g != null && `${n.protein_g}g protein`,
+        n.carbs_g != null && `${n.carbs_g}g carbs`, n.fat_g != null && `${n.fat_g}g fat`].filter(Boolean);
+      if (!parts.length) return "";
+      return `Per serving${n.serving ? ` (${esc(n.serving)})` : ""}: ${parts.join(" · ")}${n.estimated ? ` · <em>estimated by AI</em>` : ""}`;
+    }
+
+
+    watchServings("f"); // the draft review form is always on the page (hidden until a recipe is read)
+
     function fillReview(r) {
       $("f-title").value = r.title;
       fillChapterSelect(r.chapter || chapters[0].name);
@@ -748,6 +824,14 @@
       $("f-source-url").value = r.source_url;
       $("f-servings").value = r.servings;
       $("f-time").value = r.total_time;
+      const n = r.nutrition && r.nutrition.source !== "none" ? r.nutrition : null;
+      $("f-nutrition").innerHTML = nutritionInputs("f", n);
+      $("f-nutrition").dataset.serving = n?.serving || "";
+      $("f-nutrition").dataset.estimated = String(Boolean(n && n.source !== "shown"));
+      $("f-nutrition-note").textContent = "";
+      $("f-nutrition-hint").textContent = n
+        ? `(${n.source === "shown" ? "from the recipe" : "estimated by AI"}${n.serving ? `, ${n.serving}` : ""}; fix anything that looks off)`
+        : "(leave blank if you don't want it)";
       $("f-ingredients").value = r.ingredient_groups
         .map((g) => (g.name ? `# ${g.name}\n` : "") + g.items.join("\n"))
         .join("\n\n");
@@ -841,6 +925,7 @@
         tags: $("f-tags").value.split(","),
         notes: $("f-notes").value,
         my_notes: $("f-my-notes").value,
+        nutrition: readNutrition("f"),
         status: document.querySelector('input[name="status"]:checked').value,
       };
       const coverUsed = coverChoice; // remembered for analytics; the form is cleared after saving
@@ -1012,6 +1097,7 @@
         <span class="recipe-title">${esc(r.title)}</span>
         <div class="meta">${source}</div>
         ${facts ? `<div class="meta">${facts}</div>` : ""}
+        ${nutritionLine(r.nutrition) ? `<div class="meta nutrition">${nutritionLine(r.nutrition)}</div>` : ""}
         <div class="tags">${r.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join("")}</div>
         <div class="dialog-controls">
           <div><label for="d-chapter">Chapter</label><select id="d-chapter" data-id="${esc(r.id)}">${chapterOptions}</select></div>
@@ -1104,6 +1190,10 @@
         ${box("e-my-notes", "📝 My notes", r.my_notes || "", 90, "(what you changed, how it turned out)")}
         <div class="row">${line("e-source-name", "Where it came from", r.source_name)}${line("e-source-url", "Link to the original", r.source_url, "url")}</div>
         <div class="row">${line("e-servings", "Servings", r.servings)}${line("e-time", "Total time", r.total_time)}</div>
+        <label>Nutrition per serving <span class="hint">(${r.nutrition?.estimated === false ? "from the recipe" : "estimated by AI"}; clear all four to remove it)</span></label>
+        <div class="row nutrition-row" id="e-nutrition" data-serving="${esc(r.nutrition?.serving || "")}"
+          data-estimated="${Boolean(r.nutrition && r.nutrition.estimated !== false)}">${nutritionInputs("e", r.nutrition)}</div>
+        <span class="hint nutrition-note" id="e-nutrition-note" role="status"></span>
         ${box("e-ingredients", "Ingredients", ingredientsText, 200, '(one per line; start a line with # for a section, like "# Sauce")')}
         ${box("e-steps", "Steps", r.steps.join("\n"), 200, "(one per line)")}
         ${line("e-tags", "Tags <span class=\"hint\">(comma-separated)</span>", r.tags.join(", "))}
@@ -1113,6 +1203,7 @@
           <button type="button" class="btn secondary" data-action="cancel-edit" data-id="${esc(r.id)}">Cancel</button>
         </div>
       </form>`;
+      watchServings("e");
       $("e-title").focus();
     }
 
@@ -1131,6 +1222,7 @@
         tags: $("e-tags").value.split(","),
         notes: $("e-notes").value,
         my_notes: $("e-my-notes").value,
+        nutrition: readNutrition("e"),
       };
       if (!edits.title.trim()) return showToast("A recipe needs a title.");
       track("recipe_edited", { has_my_notes: Boolean(edits.my_notes.trim()) });

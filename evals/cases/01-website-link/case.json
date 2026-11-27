@@ -20,6 +20,13 @@
       "condensed milk",
       "eggs"
     ],
-    "ingredients": 11
+    "ingredients": 11,
+    "nutrition": {
+      "source": "shown",
+      "calories": 310,
+      "protein_g": 2,
+      "carbs_g": 19,
+      "fat_g": 26
+    }
   }
 }

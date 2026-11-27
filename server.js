@@ -9,6 +9,7 @@ const crypto = require("node:crypto");
 const { searchRecipe } = require("./search.js");
 const { shortTime } = require("./recipe-time.js");
 const { safeFetch, BlockedLinkError } = require("./safe-fetch.js");
+const { NUTRITION_RULE, NUTRITION_SCHEMA, cleanNutrition } = require("./nutrition.js");
 
 // ---- Settings (secrets come from .env, never from this file) ----
 try {
@@ -83,6 +84,7 @@ Rules:
 - chapter: the ONE cookbook chapter this recipe belongs in most. Choose from:
 ${chapters.map((c) => `  - ${c.name}${c.hint ? `: ${c.hint}` : ""}`).join("\n")}
 - notes: short tips from the source that are not steps (like substitutions). Use "" if none.
+${NUTRITION_RULE}
 - If the images do not contain a recipe, set is_recipe to false and explain why in "uncertain".`;
 }
 
@@ -91,7 +93,7 @@ function recipeSchema(chapterList) {
     type: "object",
     additionalProperties: false,
     required: ["is_recipe", "title", "source_name", "source_url", "servings", "total_time",
-      "ingredient_groups", "steps", "tags", "chapter", "notes", "uncertain"],
+      "ingredient_groups", "steps", "tags", "chapter", "notes", "nutrition", "uncertain"],
     properties: {
       is_recipe: { type: "boolean" },
       title: { type: "string" },
@@ -112,6 +114,7 @@ function recipeSchema(chapterList) {
       tags: { type: "array", items: { type: "string" } },
       chapter: { type: "string", enum: chapterList },
       notes: { type: "string" },
+      nutrition: NUTRITION_SCHEMA,
       uncertain: { type: "array", items: { type: "string" } },
     },
   };
@@ -241,7 +244,7 @@ async function readRecipeLink(link) {
   if (structured) {
     console.log(`[link] ${site}: found the recipe's structured data${photoUrl ? " and a photo" : ""}`);
     const keep = ["name", "author", "description", "recipeYield", "prepTime", "cookTime", "totalTime",
-      "recipeIngredient", "recipeInstructions", "recipeCategory", "recipeCuisine", "keywords"];
+      "recipeIngredient", "recipeInstructions", "recipeCategory", "recipeCuisine", "keywords", "nutrition"];
     const trimmed = Object.fromEntries(keep.filter((k) => structured[k] !== undefined).map((k) => [k, structured[k]]));
     return {
       text: `Recipe from the website ${site} (structured recipe data from the page; times may be written like PT1H30M, which means 1 hr 30 min):\n\n${JSON.stringify(trimmed, null, 1)}`,
@@ -344,27 +347,22 @@ async function buildExtractText({ link = "", text = "", hasImages = false }) {
   return { text: parts.join("\n\n---\n\n"), photoUrl };
 }
 
-async function extractRecipe({ images, text, model, chapters }) {
-  const content = [];
-  if (text.trim()) content.push({ type: "text", text });
-  if (images.length) content.push({ type: "text", text: `Extract the recipe from these ${images.length} screenshot(s), in order.` });
-  for (const url of images) content.push({ type: "image_url", image_url: { url } });
-
+// One AI call through OpenRouter that must reply with JSON in the given shape.
+// Returns { data, usage }. If the reply has no JSON or broken JSON, it throws the friendly
+// message and keeps the reply on err.raw for the evals (never sent to the page or logged).
+async function callAI({ model, system, content, name, schema, maxTokens, label }) {
   const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${API_KEY}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model,
-      max_tokens: 4000,
+      max_tokens: maxTokens,
       temperature: 0,
       messages: [
-        { role: "system", content: buildPrompt(chapters) },
+        { role: "system", content: system },
         { role: "user", content },
       ],
-      response_format: {
-        type: "json_schema",
-        json_schema: { name: "recipe", strict: true, schema: recipeSchema(chapters.map((c) => c.name)) },
-      },
+      response_format: { type: "json_schema", json_schema: { name, strict: true, schema } },
       usage: { include: true }, // ask OpenRouter to report the cost of this call
     }),
   });
@@ -373,23 +371,21 @@ async function extractRecipe({ images, text, model, chapters }) {
   if (!res.ok) throw new Error(`OpenRouter error ${res.status}: ${body.error?.message || JSON.stringify(body)}`);
 
   const raw = body.choices?.[0]?.message?.content || "";
+  const finish = body.choices?.[0]?.finish_reason;
+  const fail = (why) => {
+    console.log(`[${label}] ${why} (finish: ${finish}, ${raw.length} characters)`); // not the text itself: logs stay free of recipe content
+    const err = new Error("The AI did not return a recipe. Try again or use clearer screenshots.");
+    err.raw = { finish_reason: finish, text: raw.slice(0, 4000) };
+    return err;
+  };
   const start = raw.indexOf("{");
   const end = raw.lastIndexOf("}");
-  if (start === -1 || end === -1) {
-    console.log(`[extract] no recipe in the AI reply (finish: ${body.choices?.[0]?.finish_reason}, ${raw.length} characters)`); // not the text itself: logs stay free of recipe content
-    const err = new Error("The AI did not return a recipe. Try again or use clearer screenshots.");
-    err.raw = { finish_reason: body.choices?.[0]?.finish_reason, text: raw.slice(0, 2000) }; // for the evals; never sent to the page
-    throw err;
-  }
-  let recipe;
+  if (start === -1 || end === -1) throw fail("no JSON in the AI reply");
+  let data;
   try {
-    recipe = JSON.parse(raw.slice(start, end + 1));
+    data = JSON.parse(raw.slice(start, end + 1));
   } catch {
-    // Broken JSON from the AI: show the friendly message, keep the reply for the evals (never sent to the page)
-    console.log(`[extract] the AI reply wasn't valid JSON (finish: ${body.choices?.[0]?.finish_reason}, ${raw.length} characters)`);
-    const err = new Error("The AI did not return a recipe. Try again or use clearer screenshots.");
-    err.raw = { finish_reason: body.choices?.[0]?.finish_reason, text: raw.slice(0, 4000) };
-    throw err;
+    throw fail("the AI reply wasn't valid JSON");
   }
 
   const usage = {
@@ -398,8 +394,42 @@ async function extractRecipe({ images, text, model, chapters }) {
     output_tokens: body.usage?.completion_tokens,
     cost_usd: body.usage?.cost,
   };
+  return { data, usage };
+}
+
+async function extractRecipe({ images, text, model, chapters }) {
+  const content = [];
+  if (text.trim()) content.push({ type: "text", text });
+  if (images.length) content.push({ type: "text", text: `Extract the recipe from these ${images.length} screenshot(s), in order.` });
+  for (const url of images) content.push({ type: "image_url", image_url: { url } });
+
+  const { data: recipe, usage } = await callAI({
+    model, system: buildPrompt(chapters), content, name: "recipe",
+    schema: recipeSchema(chapters.map((c) => c.name)), maxTokens: 4000, label: "extract",
+  });
   console.log(`[extract] ${images.length} image(s) | ${usage.input_tokens} in / ${usage.output_tokens} out tokens | $${usage.cost_usd ?? "?"} | ${usage.model}`);
   return { recipe, usage };
+}
+
+// Nutrition for a recipe that's already saved (used by scripts/add-nutrition.js).
+// Reads only the recipe's text, not its photos. Returns { nutrition (cleaned, or null), usage }.
+async function estimateNutrition(recipe, model = MODEL) {
+  const text = [
+    `Title: ${recipe.title}`,
+    `Servings: ${recipe.servings || "(not shown)"}`,
+    "Ingredients:",
+    ...(recipe.ingredient_groups || []).flatMap((g) => [g.name ? `${g.name}:` : "", ...g.items.map((i) => `- ${i}`)]).filter(Boolean),
+    "Steps:",
+    ...(recipe.steps || []).map((step, i) => `${i + 1}. ${step}`),
+    recipe.notes ? `Notes from the source: ${recipe.notes}` : "",
+  ].filter(Boolean).join("\n");
+  const { data, usage } = await callAI({
+    model,
+    system: `You work out nutrition for a saved recipe. Reply with nutrition only.\n${NUTRITION_RULE}`,
+    content: [{ type: "text", text }],
+    name: "nutrition", schema: NUTRITION_SCHEMA, maxTokens: 300, label: "nutrition",
+  });
+  return { nutrition: cleanNutrition(data), usage };
 }
 
 // Keep only the fields we expect, so edited recipes are always saved in the same shape.
@@ -421,13 +451,14 @@ function cleanRecipe(r, chapterNames) {
     chapter: chapterNames.includes(r.chapter) ? r.chapter : "", // "" shows as Unsorted
     notes: str(r.notes),
     my_notes: str(r.my_notes), // your own notes after cooking it, like what you changed
+    nutrition: cleanNutrition(r.nutrition), // per serving, or null; see nutrition.js
   };
 }
 
 // The parts of a saved recipe you can change with "Edit recipe". Photos, cover, status, and
 // chapter have their own controls, so an edit never touches them.
 const EDITABLE = ["title", "source_name", "source_url", "servings", "total_time",
-  "ingredient_groups", "steps", "tags", "notes", "my_notes"];
+  "ingredient_groups", "steps", "tags", "notes", "my_notes", "nutrition"];
 
 // ---- Small HTTP helpers ----
 function sendJson(res, status, data) {
@@ -921,4 +952,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { buildExtractText, extractRecipe, BUILT_IN_CHAPTERS, MODEL };
+module.exports = { buildExtractText, extractRecipe, estimateNutrition, BUILT_IN_CHAPTERS, MODEL };

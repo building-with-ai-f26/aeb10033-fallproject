@@ -3,8 +3,13 @@
   "description": "A photo of a restaurant lunch menu (starters, brunch, mains, salads, with prices). It's full of food words and dish descriptions but has no recipe: no amounts and no steps. The app should say it isn't a recipe instead of making one up from a menu item. (The file is an AVIF image; it arrived named .png.)",
   "link": "",
   "text": "",
-  "images": ["menu.avif"],
+  "images": [
+    "menu.avif"
+  ],
   "expect": {
-    "is_recipe": false
+    "is_recipe": false,
+    "nutrition": {
+      "source": "none"
+    }
   }
 }
