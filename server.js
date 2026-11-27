@@ -63,29 +63,41 @@ const STATUSES = ["want_to_try", "favorite", "tried_ok"]; // tried_ok = "Tried, 
 // ---- The AI step: screenshots/text in, structured recipe out ----
 // Built fresh for each recipe, so chapters you add are included.
 function buildPrompt(chapters) {
-  return `You turn photos and screenshots of recipes into a clean, structured recipe.
+  return `You turn photos and screenshots of recipes into a clean, structured recipe. People cook from what you write, so a wrong amount or an invented step is worse than a blank.
 
 The user may send several screenshots of ONE recipe, in order. They often overlap: the same lines can appear at the bottom of one screenshot and the top of the next. Merge them into one recipe and include each ingredient and step only once.
 
-Sources include social media captions, recipe websites, cookbook pages, and handwritten recipe cards.
+Sources include social media captions, recipe websites, cookbook pages, newspaper clippings, and handwritten recipe cards.
 
-Rules:
-- Ignore everything that is not part of the recipe: ads, phone status bars, app buttons, comments, ratings, and calls to action (like "comment for the link").
+Copying the recipe:
+- Ignore everything that is not part of the recipe: ads, phone status bars, app buttons, comments, ratings, hashtags, and calls to action (like "comment for the link").
 - Copy quantities and wording faithfully. Do not invent ingredients, amounts, or steps that are not shown. Use an empty string for any field that is not shown (except total_time, below).
-- total_time: the total time as shown. If it is not shown, estimate it from the steps (including baking, chilling, and rising) and write it like "about 40 min (estimated)".
-- Keep ingredient sections (like "Sauce" or "Topping") as separate groups. Use an empty group name if the recipe has no sections. If a sub-recipe is written as a paragraph, make it its own ingredient group and add its method as steps.
+- Crossed-out or scribbled-over text was deleted by the writer: leave it out completely (not as an ingredient, not as a step). Margin or sideways notes belong with the line they point to; fold them into that ingredient or step instead of making them a separate step.
+- Text cut off by the edge of a photo or page: copy only the words you can see and write [...] where words are missing. Never finish a cut-off sentence or number, even if the ending seems obvious (a cut-off "Preheat the oven to 2" stays "Preheat the oven to 2[...]").
+- If the steps use an ingredient that isn't in the ingredient list (like "a little veg oil"), add it to the list in the steps' wording and note it in "uncertain".
+- Emoji used in place of words: write the words they stand for (🦐 shrimp, 🍋 lemon, 🏆 cup). Never leave emoji in ingredients or steps.
+- Write inch marks as "in" (like "1.5 x 1.5 in"), not with a quote mark. Write temperatures with a degree sign ("180oC" becomes "180°C").
 - Write @mentions as plain words: "1 cup @somebrand flour" becomes "1 cup flour (somebrand)".
-- Write steps in order without numbers. If a step continues across screenshots or pages, join it into one step.
-- If you are not sure how to read a word or number (especially handwriting), give your best reading AND add a short note to "uncertain", like "Ingredient 3: '1/3 cup' or '1/2 cup' sugar?". Also note anything cut off or hidden that you could not recover from another screenshot. Never silently guess.
-- "uncertain" is a checklist for the user, so only include things they should double-check. Do not include notes about what you did (like merging overlapping screenshots) or about fields that simply aren't shown.
-- source_name: who or where the recipe came from, as shown (creator, account, website, cookbook, or a person named in a handwritten note). For a website, use its name or domain here.
+
+Structure:
+- Keep ingredient sections (like "Sauce" or "Topping") as separate groups. If the parts have no headings but the steps make them clear (a crust and a topping), name the groups for what they make, like "Crust" and "Topping"; never use a word like "Then" as a group name. Use an empty group name if the recipe has only one part. If a sub-recipe is written as a paragraph, make it its own ingredient group and add its method as steps.
+- Write steps in order without numbers. If a step continues across screenshots or pages, join it into one step. Storage, make-ahead, and serving suggestions that aren't cooking actions go in notes, not steps.
+- total_time: the total time as shown. If it is not shown, estimate it from the steps (including baking, chilling, and rising) and write it like "about 40 min (estimated)".
+- notes: tips from the source that are not steps (substitutions, storage, make-ahead). Not a description or summary of the dish. Use "" if none.
+
+Being honest about doubt ("uncertain" is a short checklist the user reads before saving):
+- If you can't read a word or number for sure (especially handwriting), give your best reading AND add a note, like "Ingredient 3: '1/3 cup' or '1/2 cup' sugar?". A best reading without a note is a silent guess, and silent guesses are not allowed.
+- Also list: anything cut off or hidden, crossed-out lines you left out (in a few words), and ingredients you added from the steps.
+- Do NOT list: things you copied as written (spellings, brand names, "Fan" ovens), merging screenshots, fields that aren't shown, an estimated total_time, or how you grouped the ingredients.
+- If the images do not contain a recipe, set is_recipe to false and explain why in "uncertain".
+
+Details:
+- source_name: the creator, account, website, cookbook, or person actually named as the source (for a website, its name or domain). A chapter name, page header, or page footer is not a source. If no source is named, use "".
 - source_url: a complete link to the specific recipe page (starting with http) only if one is fully visible. A bare domain is not a link. Otherwise "".
-- tags: 4 to 8 short lowercase tags for search: the meal type (breakfast, lunch, dinner, dessert, snack, side, drink, baking), "meal" for any main dish, "quick" only if the total time (shown or estimated) is 30 minutes or less, the main ingredients or flavors (like chicken or chocolate), and the cuisine if obvious.
-- chapter: the ONE cookbook chapter this recipe belongs in most. Choose from:
+- tags: 4 to 8 short lowercase tags for search: the meal type (breakfast, lunch, dinner, dessert, snack, side, drink, baking), "meal" for any main dish, the main ingredients or flavors (like chicken or chocolate), and the cuisine if obvious. Add "quick" ONLY if total_time (shown or your estimate) is 30 minutes or less; for 40 minutes, 1 hour, or more, never tag "quick".
+- chapter: the ONE cookbook chapter this recipe belongs in most. If the source names its own category (like "Course: Snacks"), use the closest chapter to that. Choose from:
 ${chapters.map((c) => `  - ${c.name}${c.hint ? `: ${c.hint}` : ""}`).join("\n")}
-- notes: short tips from the source that are not steps (like substitutions). Use "" if none.
-${NUTRITION_RULE}
-- If the images do not contain a recipe, set is_recipe to false and explain why in "uncertain".`;
+${NUTRITION_RULE}`;
 }
 
 function recipeSchema(chapterList) {
@@ -405,7 +417,9 @@ async function extractRecipe({ images, text, model, chapters }) {
 
   const { data: recipe, usage } = await callAI({
     model, system: buildPrompt(chapters), content, name: "recipe",
-    schema: recipeSchema(chapters.map((c) => c.name)), maxTokens: 4000, label: "extract",
+    // Room for the AI's hidden working (it counts toward max_tokens) plus the recipe itself.
+    // Hard inputs like emoji recipes ran out at 4000 ("finish: length").
+    schema: recipeSchema(chapters.map((c) => c.name)), maxTokens: 8000, label: "extract",
     failMessage: "The AI did not return a recipe. Try again or use clearer screenshots.",
   });
   console.log(`[extract] ${images.length} image(s) | ${usage.input_tokens} in / ${usage.output_tokens} out tokens | $${usage.cost_usd ?? "?"} | ${usage.model}`);
