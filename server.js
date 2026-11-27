@@ -350,7 +350,7 @@ async function buildExtractText({ link = "", text = "", hasImages = false }) {
 // One AI call through OpenRouter that must reply with JSON in the given shape.
 // Returns { data, usage }. If the reply has no JSON or broken JSON, it throws the friendly
 // message and keeps the reply on err.raw for the evals (never sent to the page or logged).
-async function callAI({ model, system, content, name, schema, maxTokens, label }) {
+async function callAI({ model, system, content, name, schema, maxTokens, label, failMessage }) {
   const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${API_KEY}`, "Content-Type": "application/json" },
@@ -374,7 +374,7 @@ async function callAI({ model, system, content, name, schema, maxTokens, label }
   const finish = body.choices?.[0]?.finish_reason;
   const fail = (why) => {
     console.log(`[${label}] ${why} (finish: ${finish}, ${raw.length} characters)`); // not the text itself: logs stay free of recipe content
-    const err = new Error("The AI did not return a recipe. Try again or use clearer screenshots.");
+    const err = new Error(failMessage);
     err.raw = { finish_reason: finish, text: raw.slice(0, 4000) };
     return err;
   };
@@ -406,6 +406,7 @@ async function extractRecipe({ images, text, model, chapters }) {
   const { data: recipe, usage } = await callAI({
     model, system: buildPrompt(chapters), content, name: "recipe",
     schema: recipeSchema(chapters.map((c) => c.name)), maxTokens: 4000, label: "extract",
+    failMessage: "The AI did not return a recipe. Try again or use clearer screenshots.",
   });
   console.log(`[extract] ${images.length} image(s) | ${usage.input_tokens} in / ${usage.output_tokens} out tokens | $${usage.cost_usd ?? "?"} | ${usage.model}`);
   return { recipe, usage };
@@ -427,7 +428,10 @@ async function estimateNutrition(recipe, model = MODEL) {
     model,
     system: `You work out nutrition for a saved recipe. Reply with nutrition only.\n${NUTRITION_RULE}`,
     content: [{ type: "text", text }],
-    name: "nutrition", schema: NUTRITION_SCHEMA, maxTokens: 300, label: "nutrition",
+    // The AI works out the math before it answers, and that counts toward max_tokens:
+    // 300 ran out before any answer ("finish: length, 0 characters"), so give it room.
+    name: "nutrition", schema: NUTRITION_SCHEMA, maxTokens: 2000, label: "nutrition",
+    failMessage: "The AI didn't return a nutrition estimate.",
   });
   return { nutrition: cleanNutrition(data), usage };
 }
